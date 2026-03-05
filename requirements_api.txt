@@ -1,0 +1,25 @@
+# Python AI Service Requirements
+# Install: pip install -r requirements_api.txt
+
+# Database
+SQLAlchemy==2.0.25
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Web Framework
+Flask==3.0.0
+Flask-CORS==4.0.0
+gunicorn==21.2.0
+
+# AI/ML Dependencies
+torch==2.1.2
+torchvision==0.16.2
+facenet-pytorch==2.5.3
+ultralytics==8.1.0
+opencv-python==4.9.0.80
+numpy==1.24.3
+Pillow==10.2.0
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0

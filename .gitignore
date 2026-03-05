@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# dataset
+dataset/
+
+# AI models
+*.pt
+*.h5
+*.pkl
+
+# images
+*.jpg
+*.png
+*.jpeg
+
+# environment
+.env
+
+# output
+output/
