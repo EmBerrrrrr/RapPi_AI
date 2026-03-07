@@ -2,6 +2,9 @@
 Dual Camera Capture - Quét khuôn mặt và biển số cùng lúc
 Chỉ lưu dataset khi phát hiện được cả 2 với nhau
 """
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cv2
 import numpy as np
@@ -9,19 +12,21 @@ from pathlib import Path
 from datetime import datetime
 import time
 
-from face_detection import FaceDetector
-from face_recognition import FaceRecognizer
+from face_recognition.face_detection import FaceDetector
+from face_recognition.face_recognition import FaceRecognizer
 from license_plate.detector import LicensePlateDetector
 from dataset_manager import DatasetManager
+from mqtt_client import send_checkin
+from datetime import datetime, timezone
 
 
-class DualCameraCapture:
+class CheckInCapture:
     """
     Mở camera để quét khuôn mặt + biển số cùng lúc
     Chỉ lưu dataset khi phát hiện cả 2
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, save_interval=60, face_blur_thresh=100.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False):
+    def __init__(self, face_cam_id=1, plate_cam_id=0, save_interval=60, face_blur_thresh=100.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False):
         """
         Khởi tạo camera capture
         
@@ -35,12 +40,12 @@ class DualCameraCapture:
         # Initialize camera
         print("\n📸 Initializing camera...")
         # Camera quét mặt (Laptop)
-        self.face_cap = cv2.VideoCapture(0)
+        self.face_cap = cv2.VideoCapture(face_cam_id)
         if not self.face_cap.isOpened():
             raise RuntimeError("❌ Cannot open FACE camera")
 
         # Camera quét biển số (Iriun Webcam – điện thoại)
-        self.plate_cap = cv2.VideoCapture(1)
+        self.plate_cap = cv2.VideoCapture(plate_cam_id)
         if not self.plate_cap.isOpened():
             raise RuntimeError("❌ Cannot open PLATE camera")
         
@@ -123,6 +128,13 @@ class DualCameraCapture:
         while True:
             ret_face, face_frame = self.face_cap.read()
             ret_plate, plate_frame = self.plate_cap.read()
+
+            if not ret_face or face_frame is None:
+                continue
+
+            if not ret_plate or plate_frame is None:
+                continue
+
             face_display = face_frame.copy()
             plate_display = plate_frame.copy()
 
@@ -151,7 +163,8 @@ class DualCameraCapture:
             plate_image = None
             plate_bbox = None
             plate_confidence = 0.0
-
+            plate_text_stable = None
+            
             try:
                 detected_plates = self.plate_detector.detect(plate_frame, conf_threshold=0.4)
                 if len(detected_plates) > 0:
@@ -387,6 +400,21 @@ class DualCameraCapture:
 
             print(f"      ✅ Plate saved")
 
+            # Send MQTT check-in event
+            try:
+                send_checkin(
+                    plate_number=plate_text,
+                    face_img=face_image,
+                    plate_img=plate_image,
+                    camera_ip="192.168.1.20"
+                )
+                print("📡 MQTT check-in sent")
+            except Exception as e:
+                print(f"⚠️ MQTT send failed: {e}")
+
+            print("   " + "-" * 60)
+            print(f"   🎉 Total saved: {self.saved_count}\n")
+
             # >>> ADDED: record check-in time
             self.dataset_manager.record_checkin(
                 plate_text=plate_text,
@@ -467,11 +495,12 @@ def main():
     """Main entry point"""
     try:
         # Create capture instance
-        capture = DualCameraCapture(
-        save_interval=60
-    )
+        capture = CheckInCapture(
+            face_cam_id=1,
+            plate_cam_id=0,
+            save_interval=60
+        )
 
-        
         # Start camera loop
         capture.detect_and_capture()
         

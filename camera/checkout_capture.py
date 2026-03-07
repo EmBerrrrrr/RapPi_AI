@@ -3,6 +3,9 @@ Check-Out Capture - Quét khuôn mặt và biển số để check-out
 So sánh với dữ liệu check-in, xác minh 85% similarity
 Timeout: 30 giây
 """
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cv2
 import numpy as np
@@ -13,10 +16,12 @@ import json
 import pickle
 import difflib
 
-from face_detection import FaceDetector
-from face_recognition import FaceRecognizer
+from face_recognition.face_detection import FaceDetector
+from face_recognition.face_recognition import FaceRecognizer
 from license_plate.detector import LicensePlateDetector
 from dataset_manager import DatasetManager
+from mqtt_client import send_checkout
+from datetime import datetime, timezone
 
 
 class CheckOutCapture:
@@ -26,10 +31,9 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, timeout_sec=60, similarity_threshold=0.70, plate_confidence_thresh=0.80,):
+    def __init__(self, face_cam_id=1, plate_cam_id=0, timeout_sec=60, similarity_threshold=0.70, plate_confidence_thresh=0.80,):
         """
         Khởi tạo check-out capture
-        
         Args:
             face_cam_id: ID camera quét khuôn mặt (0 = webcam)
             plate_cam_id: ID camera quét biển số (1 = Iriun Webcam)
@@ -119,8 +123,8 @@ class CheckOutCapture:
         
         self.start_time = time.time()
         checkout_success = False
+        VERIFY_COOLDOWN = 2
         last_verify_time = 0
-        VERIFY_COOLDOWN = 2  # seconds between verify attempts
         
         while True:
             elapsed = time.time() - self.start_time
@@ -168,13 +172,27 @@ class CheckOutCapture:
             plate_bbox = None
             
             try:
-                detected_plates = self.plate_detector.detect(plate_frame, conf_threshold=0.4)
+                detected_plates = self.plate_detector.detect(
+                    plate_frame,
+                    conf_threshold=self.plate_confidence_thresh
+                )
                 if len(detected_plates) > 0:
                     plate_detected = True
                     best_result = detected_plates[0]
                     plate_text = best_result.get('text')
                     plate_confidence = float(best_result.get('confidence', 0.0))
                     plate_bbox = best_result.get('bbox')
+                    
+                    plate_image = None
+
+                    if plate_bbox and len(plate_bbox) == 4:
+                        x1, y1, x2, y2 = plate_bbox
+
+                        x1, y1 = max(0, x1), max(0, y1)
+                        x2, y2 = min(plate_frame.shape[1], x2), min(plate_frame.shape[0], y2)
+
+                        if x2 > x1 and y2 > y1:
+                            plate_image = plate_frame[y1:y2, x1:x2]
             except Exception as e:
                 pass
             
@@ -221,27 +239,31 @@ class CheckOutCapture:
             
             # If both detected and quality OK -> verify (with cooldown)
             current_time = time.time()
+            if not plate_detected:
+                self.verify_plate_text = None
+
             if face_detected and plate_detected and face_embedding is not None and plate_text and plate_text != "Unknown":
-                
-                # LẦN ĐẦU thấy plate → bắt đầu đếm thời gian
+
                 if self.verify_plate_text != plate_text:
                     self.verify_plate_text = plate_text
                     self.verify_start_time = current_time
                     print(f"⏳ Plate detected ({plate_text}) — waiting {self.verify_wait_sec}s to stabilize...")
-                
+
                 else:
-                    # Plate KHÔNG ĐỔI → kiểm tra đã đủ 5s chưa
                     elapsed_verify = current_time - self.verify_start_time
 
-                    if elapsed_verify >= self.verify_wait_sec:
+                    if elapsed_verify >= self.verify_wait_sec and current_time - last_verify_time > VERIFY_COOLDOWN:
+
                         print(f"\n✅ Plate & Face stable for {self.verify_wait_sec}s")
                         print("🔄 Verifying against database...")
 
                         match_result = self._verify_checkout(plate_text, face_embedding)
 
+                        last_verify_time = current_time
                         elapsed_total = time.time() - self.start_time
 
                         if match_result['success']:
+
                             checkout_info = self.dataset_manager.record_checkout(plate_text)
 
                             self.result = {
@@ -258,10 +280,26 @@ class CheckOutCapture:
                                 self.result['time_out'] = checkout_info.get('time_out')
                                 self.result['parking_duration_sec'] = checkout_info.get('duration_sec')
 
+                            #Sent MQTT checkout event
+                            try:
+                                send_checkout(
+                                    plate_number=plate_text,
+                                    similarity=match_result.get('similarity'),
+                                    face_img=face_image,
+                                    plate_img=plate_image,
+                                    camera_ip="192.168.1.20"
+                                )
+
+                                print("📡 MQTT checkout event sent")
+
+                            except Exception as e:
+                                print(f"⚠️ MQTT send failed: {e}")
+
                             break
-                    else:
-                        remain = self.verify_wait_sec - elapsed_verify
-                        print(f"⏳ Verifying in {remain:.1f}s...")
+
+                        else:
+                            print(f"❌ Verification failed ({match_result['reason']})")
+                            print(f"🔄 Retrying... Remaining: {remaining:.1f}s")
             
             # Quit on 'q'
             key = cv2.waitKey(1) & 0xFF
@@ -311,7 +349,7 @@ class CheckOutCapture:
                     m = {
                         'I': '1', 'L': '1', 'O': '0', 'Q': '0',
                         'S': '5', 'Z': '2', 'B': '8', 'G': '6',
-                        ' ': '_'
+                        'I': 'K', 
                     }
                     out = []
                     for ch in s:
@@ -368,8 +406,8 @@ class CheckOutCapture:
             
             for i, stored_vector in enumerate(stored_vectors):
                 # Normalize vectors
-                v1 = checkout_face_embedding / np.linalg.norm(checkout_face_embedding)
-                v2 = stored_vector / np.linalg.norm(stored_vector)
+                v1 = checkout_face_embedding / (np.linalg.norm(checkout_face_embedding) + 1e-8)
+                v2 = stored_vector / (np.linalg.norm(stored_vector) + 1e-8)
                 
                 # Cosine similarity
                 similarity = float(np.dot(v1, v2))
@@ -439,16 +477,19 @@ class CheckOutCapture:
     
     def cleanup(self):
         """Dọn dẹp resources"""
-        self.face_cap.release()
-        self.plate_cap.release()
+        if self.face_cap:
+            self.face_cap.release()
+
+        if self.plate_cap:
+            self.plate_cap.release()
         cv2.destroyAllWindows()
 
 def main():
     """Main entry point for check-out"""
     try:
         checkout = CheckOutCapture(
-        face_cam_id=0,
-        plate_cam_id=1,
+        face_cam_id=1,
+        plate_cam_id=0,
         timeout_sec=60,
         similarity_threshold=0.70,
         plate_confidence_thresh=0.80
@@ -480,7 +521,7 @@ if __name__ == "__main__":
     print("\n📋 PROCESS:")
     print("   1. Scan face and license plate")
     print("   2. Find matching record in database")
-    print("   3. Compare face similarity (>= 85%)")
+    print("   3. Compare face similarity (>= 70%)")
     print("   4. Show result (success/failure)")
     print("\n⏱️  TIME LIMIT: 30 seconds")
     print("🎮 Press 'q' to cancel\n")
