@@ -26,7 +26,7 @@ class CheckInCapture:
     Chỉ lưu dataset khi phát hiện cả 2
     """
     
-    def __init__(self, face_cam_id=1, plate_cam_id=0, save_interval=60, face_blur_thresh=100.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False):
+    def __init__(self, face_cam_id=0, plate_cam_id=1, save_interval=60, face_blur_thresh=100.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False):
         """
         Khởi tạo camera capture
         
@@ -406,7 +406,9 @@ class CheckInCapture:
                     plate_number=plate_text,
                     face_img=face_image,
                     plate_img=plate_image,
-                    camera_ip="192.168.1.20"
+                    camera_ip="192.168.1.20",
+                    lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
+                    gate_id=None
                 )
                 print("📡 MQTT check-in sent")
             except Exception as e:
@@ -496,8 +498,8 @@ def main():
     try:
         # Create capture instance
         capture = CheckInCapture(
-            face_cam_id=1,
-            plate_cam_id=0,
+            face_cam_id=0,
+            plate_cam_id=1,
             save_interval=60
         )
 

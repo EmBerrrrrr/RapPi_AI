@@ -31,7 +31,7 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self, face_cam_id=1, plate_cam_id=0, timeout_sec=60, similarity_threshold=0.70, plate_confidence_thresh=0.80,):
+    def __init__(self, face_cam_id=0, plate_cam_id=1, timeout_sec=60, similarity_threshold=0.70, plate_confidence_thresh=0.80,):
         """
         Khởi tạo check-out capture
         Args:
@@ -285,9 +285,11 @@ class CheckOutCapture:
                                 send_checkout(
                                     plate_number=plate_text,
                                     similarity=match_result.get('similarity'),
+                                    camera_ip="192.168.1.20",
                                     face_img=face_image,
                                     plate_img=plate_image,
-                                    camera_ip="192.168.1.20"
+                                    lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
+                                    gate_id=None
                                 )
 
                                 print("📡 MQTT checkout event sent")
@@ -488,8 +490,8 @@ def main():
     """Main entry point for check-out"""
     try:
         checkout = CheckOutCapture(
-        face_cam_id=1,
-        plate_cam_id=0,
+        face_cam_id=0,
+        plate_cam_id=1,
         timeout_sec=60,
         similarity_threshold=0.70,
         plate_confidence_thresh=0.80
