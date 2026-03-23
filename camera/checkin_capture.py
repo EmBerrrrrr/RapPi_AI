@@ -18,7 +18,7 @@ from license_plate.detector import LicensePlateDetector
 from dataset_manager import DatasetManager
 from mqtt_client import send_checkin
 from datetime import datetime, timezone
-
+from plate_utils import normalize_plate
 
 class CheckInCapture:
     """
@@ -26,7 +26,7 @@ class CheckInCapture:
     Chỉ lưu dataset khi phát hiện cả 2
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False):
+    def __init__(self, face_cam_id=0, plate_cam_id=1, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False, last_plate_logged=None):
         """
         Khởi tạo camera capture
         
@@ -170,7 +170,14 @@ class CheckInCapture:
                 if len(detected_plates) > 0:
                     plate_detected = True
                     best_result = detected_plates[0]
-                    plate_text = best_result.get('text')
+                    raw_plate_text = best_result.get('text')
+                    plate_text = normalize_plate(raw_plate_text)
+                    print(f"RAW: {raw_plate_text} → CLEAN: {plate_text}")
+                    if plate_text:
+                        plate_detected = True
+                    else:
+                        plate_detected = False
+                        plate_text = None
                     plate_bbox = best_result.get('bbox')
                     plate_confidence = float(best_result.get('confidence', 0.0))
 

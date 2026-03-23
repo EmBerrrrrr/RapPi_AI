@@ -1,8 +1,4 @@
-"""
-Check-Out Capture - Quét khuôn mặt và biển số để check-out
-So sánh với dữ liệu check-in, xác minh 85% similarity
-Timeout: 30 giây
-"""
+
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,7 +18,7 @@ from license_plate.detector import LicensePlateDetector
 from dataset_manager import DatasetManager
 from mqtt_client import send_checkout
 from datetime import datetime, timezone
-
+from plate_utils import normalize_plate
 
 class CheckOutCapture:
     """
@@ -31,7 +27,7 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80,):
+    def __init__(self, face_cam_id=0, plate_cam_id=1, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
         """
         Khởi tạo check-out capture
         Args:
@@ -179,7 +175,14 @@ class CheckOutCapture:
                 if len(detected_plates) > 0:
                     plate_detected = True
                     best_result = detected_plates[0]
-                    plate_text = best_result.get('text')
+                    raw_plate_text = best_result.get('text')
+                    plate_text = normalize_plate(raw_plate_text)
+                    print(f"RAW: {raw_plate_text} → CLEAN: {plate_text}")
+                    if plate_text:
+                        plate_detected = True
+                    else:
+                        plate_detected = False
+                        plate_text = None
                     plate_confidence = float(best_result.get('confidence', 0.0))
                     plate_bbox = best_result.get('bbox')
                     
@@ -243,7 +246,9 @@ class CheckOutCapture:
                 self.verify_plate_text = None
 
             if face_detected and plate_detected and face_embedding is not None and plate_text and plate_text != "Unknown":
-
+                if not plate_text or len(plate_text) < 8:
+                    plate_detected = False
+                
                 if self.verify_plate_text != plate_text:
                     self.verify_plate_text = plate_text
                     self.verify_start_time = current_time
@@ -431,7 +436,7 @@ class CheckOutCapture:
             print(f"   Threshold: {self.similarity_threshold:.4f}")
             
             # Check if >= threshold
-            if max_similarity >= self.similarity_threshold and avg_similarity >= 0.75:
+            if max_similarity >= self.similarity_threshold and avg_similarity >= 0.7:
                 print(f"\n✅ MATCH! Similarity: {max_similarity:.4f} (>= {self.similarity_threshold})")
                 return {
                     'success': True,
@@ -440,7 +445,9 @@ class CheckOutCapture:
                     'similarity': avg_similarity
                 }
             else:
-                print(f"\n❌ NO MATCH. Similarity: {max_similarity:.4f} (< {self.similarity_threshold})")
+                print(f"\n❌ NO MATCH")
+                print(f"   Max: {max_similarity:.4f} (threshold: {self.similarity_threshold})")
+                print(f"   Avg: {avg_similarity:.4f} (required: 0.7)")
                 return {
                     'success': False,
                     'message': f'❌ FAILED - Khuôn mặt không khớp (Tương đồng: {max_similarity:.1%})',
