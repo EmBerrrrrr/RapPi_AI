@@ -31,7 +31,7 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, timeout_sec=60, similarity_threshold=0.70, plate_confidence_thresh=0.80,):
+    def __init__(self, face_cam_id=0, plate_cam_id=1, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80,):
         """
         Khởi tạo check-out capture
         Args:
@@ -122,7 +122,7 @@ class CheckOutCapture:
         print("━" * 70)
         
         self.start_time = time.time()
-        checkout_success = False
+        # checkout_success = False
         VERIFY_COOLDOWN = 2
         last_verify_time = 0
         
@@ -262,6 +262,24 @@ class CheckOutCapture:
                         last_verify_time = current_time
                         elapsed_total = time.time() - self.start_time
 
+                        try:
+                            send_checkout(
+                                plate_number=plate_text if plate_text else "UNKNOWN",
+                                similarity=match_result.get('similarity'),
+                                camera_ip="192.168.1.20",
+                                face_img=face_image if match_result['success'] else None,
+                                plate_img=plate_image if match_result['success'] else None,
+                                lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
+                                gate_id=None,
+                                status="success" if match_result['success'] else "fail", 
+                                reason=match_result.get('reason')                           
+                            )
+
+                            print(f"📡 MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
+
+                        except Exception as e:
+                            print(f"⚠️ MQTT send failed: {e}")
+
                         if match_result['success']:
 
                             checkout_info = self.dataset_manager.record_checkout(plate_text)
@@ -279,23 +297,6 @@ class CheckOutCapture:
                                 self.result['time_in'] = checkout_info.get('time_in')
                                 self.result['time_out'] = checkout_info.get('time_out')
                                 self.result['parking_duration_sec'] = checkout_info.get('duration_sec')
-
-                            #Sent MQTT checkout event
-                            try:
-                                send_checkout(
-                                    plate_number=plate_text,
-                                    similarity=match_result.get('similarity'),
-                                    camera_ip="192.168.1.20",
-                                    face_img=face_image,
-                                    plate_img=plate_image,
-                                    lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
-                                    gate_id=None
-                                )
-
-                                print("📡 MQTT checkout event sent")
-
-                            except Exception as e:
-                                print(f"⚠️ MQTT send failed: {e}")
 
                             break
 
@@ -402,35 +403,41 @@ class CheckOutCapture:
                     'similarity': None
                 }
             
-            # Compare checkout face with all stored vectors (use cosine similarity)
             max_similarity = 0.0
             best_stored_idx = -1
-            
+
+            total_similarity = 0.0 
+            count = 0              
+
             for i, stored_vector in enumerate(stored_vectors):
-                # Normalize vectors
                 v1 = checkout_face_embedding / (np.linalg.norm(checkout_face_embedding) + 1e-8)
                 v2 = stored_vector / (np.linalg.norm(stored_vector) + 1e-8)
-                
-                # Cosine similarity
+
                 similarity = float(np.dot(v1, v2))
                 
                 print(f"   Comparison {i+1}: {similarity:.4f}")
-                
+
+                total_similarity += similarity
+                count += 1
+
                 if similarity > max_similarity:
                     max_similarity = similarity
                     best_stored_idx = i
-            
-            print(f"\n   Max similarity: {max_similarity:.4f}")
+
+            avg_similarity = total_similarity / count if count > 0 else 0.0
+
+            print(f"\n   Avg similarity: {avg_similarity:.4f}")
+            print(f"   Max similarity: {max_similarity:.4f}")
             print(f"   Threshold: {self.similarity_threshold:.4f}")
             
             # Check if >= threshold
-            if max_similarity >= self.similarity_threshold:
+            if max_similarity >= self.similarity_threshold and avg_similarity >= 0.75:
                 print(f"\n✅ MATCH! Similarity: {max_similarity:.4f} (>= {self.similarity_threshold})")
                 return {
                     'success': True,
                     'message': f'✅ THÀNH CÔNG - Cảm ơn! (Tương đồng: {max_similarity:.1%})',
                     'reason': 'match_success',
-                    'similarity': max_similarity
+                    'similarity': avg_similarity
                 }
             else:
                 print(f"\n❌ NO MATCH. Similarity: {max_similarity:.4f} (< {self.similarity_threshold})")
@@ -438,7 +445,7 @@ class CheckOutCapture:
                     'success': False,
                     'message': f'❌ FAILED - Khuôn mặt không khớp (Tương đồng: {max_similarity:.1%})',
                     'reason': 'similarity_too_low',
-                    'similarity': max_similarity
+                    'similarity': avg_similarity
                 }
         
         except Exception as e:
@@ -487,36 +494,23 @@ class CheckOutCapture:
         cv2.destroyAllWindows()
 
 def main():
-    """Main entry point for check-out"""
     try:
         checkout = CheckOutCapture(
-        face_cam_id=0,
-        plate_cam_id=1,
-        timeout_sec=60,
-        similarity_threshold=0.70,
-        plate_confidence_thresh=0.80
-    )
-
-        
+            face_cam_id=0,
+            plate_cam_id=1,
+            timeout_sec=60,
+            similarity_threshold=0.70,
+            plate_confidence_thresh=0.80
+        )
         result = checkout.start_checkout()
-        
-        # Return result for integration with parking system
-        return result
-        
+        if result.get("success"):
+            return "OPEN"
+        else:
+            return "DENY"
     except Exception as e:
         print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            'success': False,
-            'message': f'❌ FATAL ERROR - {str(e)}',
-            'plate': None,
-            'similarity': None,
-            'duration_sec': 0,
-            'reason': 'fatal_error'
-        }
-
-
+        return "DENY"
+    
 if __name__ == "__main__":
     print("\n🚀 PARKING CHECK-OUT SYSTEM")
     print("=" * 70)
@@ -532,5 +526,7 @@ if __name__ == "__main__":
     
     if result['success']:
         print(f"\n✅ {result['message']}")
+        sys.exit(0)   # SUCCESS
     else:
         print(f"\n❌ {result['message']}")
+        sys.exit(1)   # FAIL

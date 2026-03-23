@@ -26,7 +26,7 @@ class CheckInCapture:
     Chỉ lưu dataset khi phát hiện cả 2
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, save_interval=60, face_blur_thresh=100.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False):
+    def __init__(self, face_cam_id=0, plate_cam_id=1, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False):
         """
         Khởi tạo camera capture
         
@@ -92,7 +92,7 @@ class CheckInCapture:
         self.frame_count = 0
         self.last_save_time = 0
         self.ready_start_time = None     # thời điểm bắt đầu đủ điều kiện
-        self.save_delay_sec = 10.0       # CHỜ 10 GIÂY RỒI MỚI LƯU
+        self.save_delay_sec = 5.0       # CHỜ 5 GIÂY RỒI MỚI LƯU
         self.plate_lock_text = None
         self.plate_lock_start_time = None
         self.plate_lock_sec = 2.0
@@ -186,7 +186,6 @@ class CheckInCapture:
                                 plate_text_stable = self.plate_lock_text
                             if plate_text_stable:
                                 plate_text = plate_text_stable
-
                     # Crop plate from frame if bbox valid
                     if plate_bbox and len(plate_bbox) == 4:
                         x1, y1, x2, y2 = plate_bbox
@@ -304,23 +303,38 @@ class CheckInCapture:
                     except Exception as e:
                         reason = f"Face quality check error: {e}"
                         
-            #--------------------------------------------------------------
-            if quality_ok and plate_text_stable and plate_text_stable != self.last_saved_plate:
-                # Kiểm tra thời gian chờ
-                print("💾 SAVING AFTER 10s STABLE DETECTION")
+            ready_to_save = False
+                        
+            if quality_ok:
+                if self.ready_start_time is None:
+                    self.ready_start_time = current_time
+                elif current_time - self.ready_start_time >= self.save_delay_sec:
+                    ready_to_save = True
+            else:
+                self.ready_start_time = None
+                ready_to_save = False
+                        
+                        
+            # Detect_and_capture--------------------------------------------------
+            if ready_to_save and plate_text_stable and plate_text_stable != self.last_saved_plate:
+                print("💾 SAVING AFTER 5s STABLE DETECTION")
 
-                self._save_face_and_plate(
+                success = self._save_face_and_plate(
                     face_image,
                     face_embedding,
-                    plate_text,
+                    plate_text_stable,
                     plate_image
                 )
 
-                self.last_saved_plate = plate_text
+                if success:
+                    self.last_saved_plate = plate_text_stable
 
-                print("🛑 Auto stop camera after save")
-                self.cleanup()
-                return
+                    print("🛑 Auto stop camera after save")
+                    self.cleanup()
+                    return True   # ✅ SUCCESS
+                else:
+                    print("❌ Save failed")
+                    return False
             #--------------------------------------------------------------
             
             # Handle keyboard input
@@ -344,28 +358,16 @@ class CheckInCapture:
                     print("⚠️  Cannot save: need both face and plate detected!")
         
         self.cleanup()
+        return False
     
     def _save_face_and_plate(self, face_image, face_embedding, plate_text, plate_image):
-        """
-        Lưu khuôn mặt và biển số với tên giống nhau
-        
-        Args:
-            face_image: Face image (160x160x3)
-            face_embedding: Face embedding vector (512,)
-            plate_text: License plate text (e.g., "29S-12345")
-            plate_image: Plate image (numpy array)
-        """
         try:
-            # Clean plate text
-            clean_plate = plate_text.strip().upper().replace(" ", "_")
-            
+            clean_plate = plate_text.strip().upper().replace(" ", "_") if plate_text else "UNKNOWN"
+
             print(f"\n✅ SAVING DATA FOR: {clean_plate}")
-            print("   " + "-" * 60)
-            
-            # Save face with plate name
-            print(f"   📷 Saving face image...")
+
             face_saved = self.dataset_manager.save_face_vector(
-                name=clean_plate,  # Use plate as face name
+                name=clean_plate,
                 face_image=face_image,
                 embedding_vector=face_embedding,
                 metadata={
@@ -376,14 +378,22 @@ class CheckInCapture:
             )
 
             if not face_saved:
-                print("   ❌ Face vector save failed — skipping plate save to avoid inconsistency")
-                print("   " + "-" * 60)
+                print("❌ Face save failed")
+
+                send_checkin(
+                    plate_number=clean_plate,
+                    face_img=None,
+                    plate_img=None,
+                    camera_ip="192.168.1.20",
+                    lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
+                    gate_id=None,
+                    status="fail",
+                    reason="face_save_failed"
+                )
                 return False
 
-            print(f"      ✅ Face saved")
+            print("✅ Face saved")
 
-            # Save plate
-            print(f"   🚗 Saving license plate image...")
             plate_saved = self.dataset_manager.save_license_plate(
                 plate_text=plate_text,
                 plate_image=plate_image,
@@ -394,30 +404,22 @@ class CheckInCapture:
             )
 
             if not plate_saved:
-                print("   ❌ Plate save failed")
-                print("   " + "-" * 60)
-                return False
+                print("❌ Plate save failed")
 
-            print(f"      ✅ Plate saved")
-
-            # Send MQTT check-in event
-            try:
                 send_checkin(
-                    plate_number=plate_text,
-                    face_img=face_image,
-                    plate_img=plate_image,
+                    plate_number=clean_plate,
+                    face_img=None,
+                    plate_img=None,
                     camera_ip="192.168.1.20",
                     lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
-                    gate_id=None
+                    gate_id=None,
+                    status="fail",
+                    reason="plate_save_failed"
                 )
-                print("📡 MQTT check-in sent")
-            except Exception as e:
-                print(f"⚠️ MQTT send failed: {e}")
+                return False
 
-            print("   " + "-" * 60)
-            print(f"   🎉 Total saved: {self.saved_count}\n")
+            print("✅ Plate saved")
 
-            # >>> ADDED: record check-in time
             self.dataset_manager.record_checkin(
                 plate_text=plate_text,
                 face_name=clean_plate,
@@ -429,15 +431,35 @@ class CheckInCapture:
 
             self.saved_count += 1
 
-            print("   " + "-" * 60)
-            print(f"   🎉 Total saved: {self.saved_count}\n")
-            
+            send_checkin(
+                plate_number=clean_plate,
+                face_img=face_image,
+                plate_img=plate_image,
+                camera_ip="192.168.1.20",
+                lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
+                gate_id=None,
+                status="success",
+                reason="ok"
+            )
+
+            print("✅ CHECK-IN SUCCESS SENT")
             return True
-            
+
         except Exception as e:
-            print(f"\n❌ Error saving: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Exception: {e}")
+
+            send_checkin(
+                plate_number="UNKNOWN",
+                face_img=None,
+                plate_img=None,
+                camera_ip="192.168.1.20",
+                lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
+                gate_id=None,
+                status="fail",
+                reason="exception"
+            )
+
+            return False
     
     def _show_report(self):
         """Hiển thị báo cáo thống kê"""
@@ -494,31 +516,30 @@ class CheckInCapture:
 
 
 def main():
-    """Main entry point"""
     try:
-        # Create capture instance
         capture = CheckInCapture(
             face_cam_id=0,
             plate_cam_id=1,
             save_interval=60
         )
-
-        # Start camera loop
-        capture.detect_and_capture()
-        
+        result = capture.detect_and_capture()
+        if result:
+            return "OPEN"
+        else:
+            return "DENY"
     except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-
+        print(f"\n Error: {e}")
+        return "DENY"
 
 if __name__ == "__main__":
-    print("\n🚀 DUAL CAMERA CAPTURE WITH DATASET SAVING")
+    print("\n DUAL CAMERA CAPTURE WITH DATASET SAVING")
     print("=" * 70)
-    print("\n⚠️  REQUIREMENTS:")
+
+    print("\n    REQUIREMENTS:")
     print("   1. Camera connected")
     print("   2. All AI models loaded")
     print("   3. Position yourself in front of camera with vehicle")
+
     print("\n💡 BEHAVIOR:")
     print("   • Detects faces continuously")
     print("   • Detects license plates continuously")
@@ -526,5 +547,12 @@ if __name__ == "__main__":
     print("   • Each plate is saved once (no spam)")
     print("   • Face saved with same name as plate")
     print("\n")
-    
-    main()
+
+    result = main()
+
+    if result:
+        print("\n✅ CHECK-IN SUCCESS")
+        sys.exit(0) 
+    else:
+        print("\n❌ CHECK-IN FAILED")
+        sys.exit(1) 
