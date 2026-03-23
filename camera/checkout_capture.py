@@ -277,7 +277,8 @@ class CheckOutCapture:
                                 lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
                                 gate_id=None,
                                 status="success" if match_result['success'] else "fail", 
-                                reason=match_result.get('reason')                           
+                                reason=match_result.get('reason'),
+                                parking_status = "Completed" if match_result['success'] else None                     
                             )
 
                             print(f"📡 MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
@@ -329,142 +330,81 @@ class CheckOutCapture:
         return self.result
     
     def _verify_checkout(self, plate_text, checkout_face_embedding):
-        """
-        Xác minh check-out: tìm plate trong dataset, so sánh face
-        
-        Args:
-            plate_text: Biển số xe (str)
-            checkout_face_embedding: Face embedding từ check-out (array)
-            
-        Returns:
-            dict: Kết quả xác minh
-        """
-        try:
-            # Get all face vectors from dataset
-            all_vectors = self.dataset_manager.get_all_face_vectors()
-            
-            # Tìm face được lưu với tên = plate_text (hoặc plate name normalized)
-            plate_normalized = plate_text.strip().upper().replace(" ", "_")
+        stored_vectors_dict = self.dataset_manager.get_all_face_vectors()
 
-            print(f"\n🔍 Searching for plate: {plate_normalized}")
-
-            # Exact match first
-            if plate_normalized not in all_vectors:
-                # Try fuzzy/heuristic matching (common OCR confusions)
-                print("   🔎 Exact match not found — trying fuzzy match...")
-
-                def ocr_fix(s: str) -> str:
-                    m = {
-                        'I': '1', 'L': '1', 'O': '0', 'Q': '0',
-                        'S': '5', 'Z': '2', 'B': '8', 'G': '6',
-                        'I': 'K', 
-                    }
-                    out = []
-                    for ch in s:
-                        out.append(m.get(ch, ch))
-                    return ''.join(out)
-
-                candidates = list(all_vectors.keys())
-                best_candidate = None
-                best_score = 0.0
-
-                for cand in candidates:
-                    # compare normalized forms
-                    cand_norm = str(cand).upper()
-                    # try direct ratio
-                    r1 = difflib.SequenceMatcher(None, plate_normalized, cand_norm).ratio()
-                    # try mapping OCR confusions
-                    r2 = difflib.SequenceMatcher(None, ocr_fix(plate_normalized), cand_norm).ratio()
-                    r3 = difflib.SequenceMatcher(None, plate_normalized, ocr_fix(cand_norm)).ratio()
-                    score = max(r1, r2, r3)
-                    if score > best_score:
-                        best_score = score
-                        best_candidate = cand
-
-                print(f"   🔎 Best fuzzy candidate: {best_candidate} (score={best_score:.2f})")
-
-                # Accept candidate if reasonably close
-                if best_candidate and best_score >= 0.7:
-                    print(f"   ✅ Using fuzzy-matched plate: {best_candidate}")
-                    plate_normalized = best_candidate
-                else:
-                    print(f"   ❌ Plate {plate_text} not found in database (no close match)")
-                    return {
-                        'success': False,
-                        'message': f'❌ FAILED - Biển số {plate_text} không tìm thấy trong database',
-                        'reason': 'plate_not_found',
-                        'similarity': None
-                    }
-            
-            # Get stored face vectors for this plate
-            stored_vectors = all_vectors[plate_normalized]  # numpy array (N, 512)
-            
-            if stored_vectors.shape[0] == 0:
-                print(f"   ❌ No face vectors for plate {plate_text}")
-                return {
-                    'success': False,
-                    'message': f'❌ FAILED - Không có dữ liệu khuôn mặt cho biển số {plate_text}',
-                    'reason': 'no_face_vectors',
-                    'similarity': None
-                }
-            
-            max_similarity = 0.0
-            best_stored_idx = -1
-
-            total_similarity = 0.0 
-            count = 0              
-
-            for i, stored_vector in enumerate(stored_vectors):
-                v1 = checkout_face_embedding / (np.linalg.norm(checkout_face_embedding) + 1e-8)
-                v2 = stored_vector / (np.linalg.norm(stored_vector) + 1e-8)
-
-                similarity = float(np.dot(v1, v2))
-                
-                print(f"   Comparison {i+1}: {similarity:.4f}")
-
-                total_similarity += similarity
-                count += 1
-
-                if similarity > max_similarity:
-                    max_similarity = similarity
-                    best_stored_idx = i
-
-            avg_similarity = total_similarity / count if count > 0 else 0.0
-
-            print(f"\n   Avg similarity: {avg_similarity:.4f}")
-            print(f"   Max similarity: {max_similarity:.4f}")
-            print(f"   Threshold: {self.similarity_threshold:.4f}")
-            
-            # Check if >= threshold
-            if max_similarity >= self.similarity_threshold and avg_similarity >= 0.7:
-                print(f"\n✅ MATCH! Similarity: {max_similarity:.4f} (>= {self.similarity_threshold})")
-                return {
-                    'success': True,
-                    'message': f'✅ THÀNH CÔNG - Cảm ơn! (Tương đồng: {max_similarity:.1%})',
-                    'reason': 'match_success',
-                    'similarity': avg_similarity
-                }
-            else:
-                print(f"\n❌ NO MATCH")
-                print(f"   Max: {max_similarity:.4f} (threshold: {self.similarity_threshold})")
-                print(f"   Avg: {avg_similarity:.4f} (required: 0.7)")
-                return {
-                    'success': False,
-                    'message': f'❌ FAILED - Khuôn mặt không khớp (Tương đồng: {max_similarity:.1%})',
-                    'reason': 'similarity_too_low',
-                    'similarity': avg_similarity
-                }
-        
-        except Exception as e:
-            print(f"\n❌ Error during verification: {e}")
-            import traceback
-            traceback.print_exc()
+        if plate_text not in stored_vectors_dict:
             return {
                 'success': False,
-                'message': f'❌ FAILED - Lỗi xác minh: {str(e)}',
-                'reason': 'verification_error',
-                'similarity': None
+                'reason': 'plate_not_found',
+                'message': 'Không tìm thấy biển số',
+                'similarity': 0.0
             }
+
+        stored_vectors = stored_vectors_dict[plate_text]
+
+        max_similarity = 0.0
+
+        for stored_vector in stored_vectors:
+            v1 = checkout_face_embedding / (np.linalg.norm(checkout_face_embedding) + 1e-8)
+            v2 = stored_vector / (np.linalg.norm(stored_vector) + 1e-8)
+
+            similarity = float(np.dot(v1, v2))
+
+            if similarity > max_similarity:
+                max_similarity = similarity
+
+        if max_similarity < self.similarity_threshold:
+            return {
+                'success': False,
+                'reason': 'face_not_match',
+                'message': 'Không khớp khuôn mặt',
+                'similarity': max_similarity
+            }
+
+        # ===== GỌI BE =====
+        backend_result = self.dataset_manager.update_checkout_to_backend(plate_text)
+
+        if not backend_result["success"]:
+            return {
+                'success': False,
+                'reason': 'backend_error',
+                'message': 'Lỗi kết nối BE',
+                'similarity': max_similarity
+            }
+
+        status = backend_result["status"]
+
+        # ===== XỬ LÝ STATUS BE =====
+        if status == "Active":
+            return {
+                'success': False,
+                'reason': 'not_paid',
+                'message': 'Chưa thanh toán',
+                'similarity': max_similarity
+            }
+
+        if status == "Pending":
+            return {
+                'success': True,
+                'reason': 'match_success',
+                'message': 'Đã thanh toán - cho phép ra',
+                'similarity': max_similarity
+            }
+
+        if status == "Completed":
+            return {
+                'success': False,
+                'reason': 'already_checked_out',
+                'message': 'Xe máy này đã checkout trước đó',
+                'similarity': max_similarity
+            }
+
+        return {
+            'success': False,
+            'reason': 'unknown_status',
+            'message': 'Trạng thái không hợp lệ',
+            'similarity': max_similarity
+        }
     
     def _display_result(self):
         """Hiển thị kết quả check-out"""

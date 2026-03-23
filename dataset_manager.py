@@ -1,7 +1,3 @@
-"""
-Dataset Manager - Lưu vector khuôn mặt và biển số xe
-"""
-
 import os
 import json
 import numpy as np
@@ -9,19 +5,10 @@ import cv2
 from pathlib import Path
 from datetime import datetime
 import pickle
-
+import requests
 
 class DatasetManager:
-    """Quản lý dataset cho face vectors và license plates"""
-    
     def __init__(self, dataset_dir="dataset", output_dir="output"):
-        """
-        Khởi tạo Dataset Manager
-        
-        Args:
-            dataset_dir: Thư mục chứa dataset
-            output_dir: Thư mục chứa output
-        """
         self.dataset_dir = Path(dataset_dir)
         self.output_dir = Path(output_dir)
         
@@ -77,18 +64,6 @@ class DatasetManager:
     # ============ FACE VECTOR METHODS ============
     
     def save_face_vector(self, name, face_image, embedding_vector, metadata=None):
-        """
-        Lưu vector khuôn mặt
-        
-        Args:
-            name: Tên người (str)
-            face_image: Ảnh khuôn mặt (numpy array)
-            embedding_vector: Vector embedding (numpy array)
-            metadata: Metadata bổ sung (dict)
-            
-        Returns:
-            bool: True if saved successfully
-        """
         try:
             # Tạo unique ID
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -145,12 +120,6 @@ class DatasetManager:
             return False
     
     def get_all_face_vectors(self):
-        """
-        Lấy tất cả vectors khuôn mặt
-        
-        Returns:
-            dict: {name: [vectors]}
-        """
         result = {}
         for name, data in self.vectors_data.items():
             result[name] = np.array([
@@ -159,12 +128,6 @@ class DatasetManager:
         return result
     
     def get_face_vector_stats(self):
-        """
-        Lấy thống kê vectors khuôn mặt
-        
-        Returns:
-            dict: Thống kê
-        """
         stats = {
             'total_persons': len(self.faces_data),
             'total_vectors': sum(d['count'] for d in self.faces_data.values()),
@@ -183,17 +146,6 @@ class DatasetManager:
     # ============ LICENSE PLATE METHODS ============
     
     def save_license_plate(self, plate_text, plate_image, metadata=None):
-        """
-        Lưu biển số xe
-        
-        Args:
-            plate_text: Text biển số (str)
-            plate_image: Ảnh biển số (numpy array)
-            metadata: Metadata bổ sung (dict)
-            
-        Returns:
-            bool: True if saved successfully
-        """
         try:
             # Clean plate text
             plate_text = plate_text.strip().upper()
@@ -241,12 +193,6 @@ class DatasetManager:
             return False
     
     def get_license_plate_stats(self):
-        """
-        Lấy thống kê biển số xe
-        
-        Returns:
-            dict: Thống kê
-        """
         stats = {
             'total_unique_plates': len(self.lp_data),
             'total_images': sum(d['count'] for d in self.lp_data.values()),
@@ -418,6 +364,31 @@ class DatasetManager:
         print("⚠️ No active check-in found")
         return None
 
+    def update_checkout_to_backend(self, plate_text):
+        try:
+            res = requests.post(
+                "http://YOUR_BACKEND_API/parking-session/checkout",
+                json={
+                    "plate_number": plate_text
+                },
+                timeout=5
+            )
+
+            data = res.json()
+
+            return {
+                "success": res.status_code == 200,
+                "status": data.get("status"),
+                "message": data.get("message")
+            }
+
+        except Exception as e:
+            print(f"Backend error: {e}")
+            return {
+                "success": False,
+                "status": None,
+                "message": "backend_error"
+            }
     
     # ============ UTILITY METHODS ============
     
