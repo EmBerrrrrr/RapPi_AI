@@ -521,12 +521,12 @@ if __name__ == "__main__":
     print("   4. Show result (success/failure)")
     print("\n⏱️  TIME LIMIT: 30 seconds")
     print("🎮 Press 'q' to cancel\n")
-    
+        
     result = main()
-    
-    if result['success']:
-        print(f"\n✅ {result['message']}")
+
+    if result == "OPEN":
+        print(f"\n✅ CHECK-OUT SUCCESS")
         sys.exit(0)   # SUCCESS
     else:
-        print(f"\n❌ {result['message']}")
+        print(f"\n❌ CHECK-OUT FAILED")
         sys.exit(1)   # FAIL
