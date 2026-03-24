@@ -3,118 +3,91 @@ import time
 import requests
 import sys
 import os
-from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
 
 
 class FaceCheckIn:
     def __init__(self, cam_id=0):
-        print("INIT FACE CHECK-IN SYSTEM")
+        print("INIT FACE SCAN")
 
-        # Camera
         self.cap = cv2.VideoCapture(cam_id)
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open camera")
 
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-        # AI
         self.face_detector = FaceDetector()
         self.face_recognizer = FaceRecognizer()
 
-        # API
         self.API_URL = "https://famous-kodiak-delicate.ngrok-free.app/api/v1/work-shifts/face-check-in"
 
-        # chống spam
-        self.last_checkin_time = 0
-        self.cooldown = 10  # seconds
-
-        print("System ready!")
-
     def run(self):
-        print("Camera started... (press Q to quit)")
+        print("Opening camera...")
+
+        start_time = time.time()
+        timeout = 5  # chạy đủ 5s
+
+        best_embedding = None
 
         while True:
             ret, frame = self.cap.read()
             if not ret:
                 continue
 
-            display = frame.copy()
-
-            face_detected = False
-            embedding = None
-
-            # ===== DETECT FACE =====
             try:
-                faces, boxes = self.face_detector.extract_all_faces(frame)
+                faces, _ = self.face_detector.extract_all_faces(frame)
 
                 if len(faces) > 0:
-                    face_detected = True
                     face_img = faces[0]
 
                     embedding = self.face_recognizer.get_embedding(face_img)
 
-                    # draw box
-                    display = self.face_detector.draw_faces(display)
+                    # luôn update embedding mới nhất trong 10s
+                    best_embedding = embedding
+
+                    print(f"Face detected (vector {len(embedding)})")
 
             except Exception as e:
-                print("Face error:", e)
+                print("Error:", e)
 
-            # ===== CALL API =====
-            if face_detected and embedding is not None:
-                now = time.time()
+            cv2.imshow("SCAN FACE", frame)
 
-                if now - self.last_checkin_time > self.cooldown:
-                    print("Face detected → sending...")
-
-                    self.call_api(embedding)
-
-                    self.last_checkin_time = now
-
-            # ===== UI =====
-            status = "NO FACE"
-            if face_detected:
-                status = "FACE DETECTED"
-
-            cv2.putText(display, status, (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-
-            cv2.imshow("FACE CHECK-IN", display)
+            # đủ 5s thì dừng
+            if time.time() - start_time > timeout:
+                print("Finished scanning (5s)")
+                break
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
+        # sau 5s mới gửi
+        if best_embedding is not None:
+            print("Sending embedding...")
+            self.send_embedding(best_embedding)
+            print("Done")
+        else:
+            print("No face detected")
+
         self.cleanup()
 
-    def call_api(self, embedding):
+    def send_embedding(self, embedding):
         try:
-            res = requests.post(
+            requests.post(
                 self.API_URL,
-                json={
-                    "embedding": embedding.tolist()
-                },
-                timeout=5
+                json={"embedding": embedding.tolist()},
+                timeout=3
             )
-
-            if res.status_code == 200:
-                data = res.json()
-                print("RESPONSE:", data)
-            else:
-                print("API ERROR:", res.text)
-
         except Exception as e:
-            print("CALL API FAIL:", e)
+            print("Send fail:", e)
 
     def cleanup(self):
-        print("Cleaning up...")
+        print("Closing camera...")
         self.cap.release()
         cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    app = FaceCheckIn(cam_id=0)
+    app = FaceCheckIn()
     app.run()

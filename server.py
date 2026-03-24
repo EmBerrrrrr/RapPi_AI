@@ -23,7 +23,7 @@ def checkin():
             return "DENY"
 
     except Exception as e:
-        print("❌ CHECK-IN ERROR:", e)
+        print(" CHECK-IN ERROR:", e)
         return "DENY"
 
 
@@ -46,10 +46,10 @@ def checkout():
             return "DENY"
 
     except Exception as e:
-        print("❌ CHECK-OUT ERROR:", e)
+        print("CHECK-OUT ERROR:", e)
         return "DENY"
 
 
 if __name__ == "__main__":
-    print("🚀 Flask API started")
+    print(" Flask API started")
     app.run(host='0.0.0.0', port=5000)
