@@ -5,9 +5,10 @@ import time
 import requests
 import sys
 import os
+
 # Đường dẫn API Backend (.NET)
 # Thay localhost bằng IP của máy chạy Backend nếu chạy từ thiết bị khác
-API_BASE_URL = "https://localhost:7015" 
+API_BASE_URL = "https://famous-kodiak-delicate.ngrok-free.app/" 
 CHECKIN_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-in"
 CHECKOUT_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-out"
 
