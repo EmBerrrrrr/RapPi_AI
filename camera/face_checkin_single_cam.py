@@ -5,7 +5,6 @@ import time
 import requests
 import sys
 import os
-
 # Đường dẫn API Backend (.NET)
 # Thay localhost bằng IP của máy chạy Backend nếu chạy từ thiết bị khác
 API_BASE_URL = "https://localhost:7015" 
