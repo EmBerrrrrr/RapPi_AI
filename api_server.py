@@ -17,10 +17,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import AI services
-from face_detection import FaceDetector
-from face_recognition import FaceRecognizer
+from face_recognition.face_detection import FaceDetector
+from face_recognition.face_recognition import FaceRecognizer
 from license_plate.detector import LicensePlateDetector
-from parking_service import ParkingService
+""" from parking_service import ParkingService """
 from database_models import create_db_engine
 import uuid
 
@@ -184,6 +184,65 @@ def recognize_face():
         })
         
     except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/extract/embedding', methods=['POST'])
+def extract_face_embedding():
+    """
+    Extract face embedding from image for .NET Backend
+    Request body:
+    {
+        "image": "base64_encoded_image"
+    }
+    Response:
+    {
+        "success": true,
+        "embedding": "base64_string",
+        "dim": 512
+    }
+    """
+    try:
+        data = request.get_json()
+        image_base64 = data.get('image')
+        
+        if not image_base64:
+            return jsonify({'success': False, 'message': 'No image provided'}), 400
+        
+        # 1. Decode image
+        image = decode_base64_image(image_base64)
+        if image is None:
+            return jsonify({'success': False, 'message': 'Invalid image format'}), 400
+        
+        # 2. Detect face
+        faces = face_detector.detect_faces(image)
+        if not faces:
+            return jsonify({'success': False, 'message': 'No face detected'}), 400
+        
+        # 3. Get first face crop
+        x, y, w, h = faces[0]['box']
+        # Đảm bảo crop không ra ngoài biên ảnh
+        y_min, y_max = max(0, y), min(image.shape[0], y+h)
+        x_min, x_max = max(0, x), min(image.shape[1], x+w)
+        face_crop = image[y_min:y_max, x_min:x_max]
+        face_crop = cv2.resize(face_crop, (160, 160))
+        
+        # 4. Get 512D embedding
+        embedding = face_recognizer.get_embedding(face_crop)
+        
+        # 5. Convert to float32 and encode back to base64 for .NET
+        # .NET sẽ Convert.FromBase64String và dùng BitConverter để lấy float[]
+        embedding_bytes = embedding.astype(np.float32).tobytes()
+        embedding_base64 = base64.b64encode(embedding_bytes).decode('utf-8')
+        
+        return jsonify({
+            'success': True,
+            'embedding': embedding_base64,
+            'dim': len(embedding)
+        })
+        
+    except Exception as e:
+        print(f"Embedding extraction error: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 

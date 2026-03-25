@@ -1,120 +1,91 @@
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import cv2
 import time
 import requests
 import sys
 import os
-from datetime import datetime
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from face_recognition.face_detection import FaceDetector
-from face_recognition.face_recognition import FaceRecognizer
+# Đường dẫn API Backend (.NET)
+# Thay localhost bằng IP của máy chạy Backend nếu chạy từ thiết bị khác
+API_BASE_URL = "https://localhost:7015" 
+CHECKIN_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-in"
+CHECKOUT_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-out"
 
+def capture_and_process(mode='checkin', token=None):
+    """
+    Hàm chụp 1 ảnh duy nhất và gửi về Backend
+    mode: 'checkin' hoặc 'checkout'
+    token: JWT Token của nhân viên (nếu có)
+    """
+    print(f"--- Đang khởi động hệ thống nhận diện {mode.upper()} ---")
+    
+    # 1. Mở Camera
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("LỖI: Không thể mở Camera")
+        return False
 
-class FaceCheckIn:
-    def __init__(self, cam_id=0):
-        print("INIT FACE CHECK-IN SYSTEM")
+    url = CHECKIN_URL if mode == 'checkin' else CHECKOUT_URL
+    start_time = time.time()
+    captured_frame = None
+    
+    print("Đang quét khuôn mặt... Vui lòng nhìn thẳng vào camera.")
 
-        # Camera
-        self.cap = cv2.VideoCapture(cam_id)
-        if not self.cap.isOpened():
-            raise RuntimeError("Cannot open camera")
-
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-        # AI
-        self.face_detector = FaceDetector()
-        self.face_recognizer = FaceRecognizer()
-
-        # API
-        self.API_URL = "https://famous-kodiak-delicate.ngrok-free.app/api/v1/work-shifts/face-check-in"
-
-        # chống spam
-        self.last_checkin_time = 0
-        self.cooldown = 10  # seconds
-
-        print("System ready!")
-
-    def run(self):
-        print("Camera started... (press Q to quit)")
-
+    try:
         while True:
-            ret, frame = self.cap.read()
+            ret, frame = cap.read()
             if not ret:
                 continue
 
-            display = frame.copy()
-
-            face_detected = False
-            embedding = None
-
-            # ===== DETECT FACE =====
-            try:
-                faces, boxes = self.face_detector.extract_all_faces(frame)
-
-                if len(faces) > 0:
-                    face_detected = True
-                    face_img = faces[0]
-
-                    embedding = self.face_recognizer.get_embedding(face_img)
-
-                    # draw box
-                    display = self.face_detector.draw_faces(display)
-
-            except Exception as e:
-                print("Face error:", e)
-
-            # ===== CALL API =====
-            if face_detected and embedding is not None:
-                now = time.time()
-
-                if now - self.last_checkin_time > self.cooldown:
-                    print("Face detected → sending...")
-
-                    self.call_api(embedding)
-
-                    self.last_checkin_time = now
-
-            # ===== UI =====
-            status = "NO FACE"
-            if face_detected:
-                status = "FACE DETECTED"
-
-            cv2.putText(display, status, (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-
-            cv2.imshow("FACE CHECK-IN", display)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            # Hiển thị cửa sổ xem trước (Tùy chọn - có thể ẩn đi trên thiết bị nhúng)
+            cv2.imshow("Scan Face", frame)
+            
+            # Tự động chụp sau 5 giây để đảm bảo camera đã lấy nét xong
+            if time.time() - start_time > 5.0:
+                captured_frame = frame
                 break
 
-        self.cleanup()
-
-    def call_api(self, embedding):
-        try:
-            res = requests.post(
-                self.API_URL,
-                json={
-                    "embedding": embedding.tolist()
-                },
-                timeout=5
-            )
-
-            if res.status_code == 200:
-                data = res.json()
-                print("RESPONSE:", data)
-            else:
-                print("API ERROR:", res.text)
-
-        except Exception as e:
-            print("CALL API FAIL:", e)
-
-    def cleanup(self):
-        print("Cleaning up...")
-        self.cap.release()
+            # Nhấn 'q' để hủy
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                print("Đã hủy quét.")
+                break
+                
+    finally:
+        cap.release()
         cv2.destroyAllWindows()
 
+    # 2. Gửi ảnh về Backend (C#)
+    if captured_frame is not None:
+        print("Đang gửi ảnh về hệ thống đối soát...")
+        try:
+            _, img_encoded = cv2.imencode('.jpg', captured_frame)
+            files = {
+                'FaceImage': ('checkin.jpg', img_encoded.tobytes(), 'image/jpeg')
+            }
+            
+            headers = {}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            
+            response = requests.post(url, files=files, headers=headers, timeout=15, verify=False)
+            
+            if response.status_code == 200:
+                print("✅ THÀNH CÔNG:", response.json().get('message', 'Điểm danh hoàn tất'))
+                return True
+            else:
+                print("❌ THẤT BẠI:", response.text)
+                return False
+                
+        except Exception as e:
+            print(f"❌ LỖI KẾT NỐI BE: {e}")
+            return False
+    
+    return False
 
 if __name__ == "__main__":
-    app = FaceCheckIn(cam_id=0)
-    app.run()
+    # Cách dùng: python face_checkin_single_cam.py [checkin/checkout] [JWT_TOKEN]
+    mode = sys.argv[1] if len(sys.argv) > 1 else 'checkin'
+    token = sys.argv[2] if len(sys.argv) > 2 else None
+    
+    capture_and_process(mode, token)
