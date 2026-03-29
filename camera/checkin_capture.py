@@ -34,23 +34,23 @@ class CheckInCapture:
             save_interval: Số frames giữa các lần lưu (tránh spam)
         """
         print("\n" + "="*70)
-        print("🎬 DUAL CAMERA CAPTURE - INITIALIZATION")
+        print("DUAL CAMERA CAPTURE - INITIALIZATION")
         print("="*70)
         
         # Initialize camera
-        print("\n📸 Initializing camera...")
+        print("\nInitializing camera...")
         # Camera quét mặt (Laptop)
         self.face_cap = cv2.VideoCapture(face_cam_id)
         if not self.face_cap.isOpened():
-            raise RuntimeError("❌ Cannot open FACE camera")
+            raise RuntimeError("Cannot open FACE camera")
 
         # Camera quét biển số (Iriun Webcam – điện thoại)
         self.plate_cap = cv2.VideoCapture(plate_cam_id)
         if not self.plate_cap.isOpened():
-            raise RuntimeError("❌ Cannot open PLATE camera")
+            raise RuntimeError("Cannot open PLATE camera")
         
         if not self.face_cap.isOpened():
-            raise RuntimeError(f"❌ Cannot open face camera")
+            raise RuntimeError(f"Cannot open face camera")
              
         # Set face camera resolution
         self.face_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -61,22 +61,22 @@ class CheckInCapture:
         self.plate_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.plate_cap.set(cv2.CAP_PROP_FPS, 30)
         
-        print(f"   ✅ Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
+        print(f"   Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
         
         # Initialize AI modules
-        print("\n🤖 Initializing AI modules...")
+        print("\n Initializing AI modules...")
         self.face_detector = FaceDetector()
-        print("   ✅ Face detector ready")
+        print("   Face detector ready")
         
         self.face_recognizer = FaceRecognizer()
-        print("   ✅ Face recognizer ready")
+        print("   Face recognizer ready")
         
         self.plate_detector = LicensePlateDetector()
-        print("   ✅ License plate detector ready")
+        print("   License plate detector ready")
         
         # Initialize dataset manager
         self.dataset_manager = DatasetManager()
-        print("   ✅ Dataset manager ready")
+        print("   Dataset manager ready")
         
         # Settings
         self.save_interval = save_interval  # Seconds between saves
@@ -102,7 +102,7 @@ class CheckInCapture:
         self.saved_count = 0
         self.last_saved_plate = None
         
-        print("\n✅ All modules initialized successfully!")
+        print("\nAll modules initialized successfully!")
         print("="*70)
     
     def detect_and_capture(self):
@@ -139,7 +139,7 @@ class CheckInCapture:
             plate_display = plate_frame.copy()
 
             if not ret_face or not ret_plate:
-                print("❌ Camera read error")
+                print("Camera read error")
                 break
 
             self.frame_count += 1
@@ -338,9 +338,9 @@ class CheckInCapture:
 
                     print("🛑 Auto stop camera after save")
                     self.cleanup()
-                    return True   # ✅ SUCCESS
+                    return True   # SUCCESS
                 else:
-                    print("❌ Save failed")
+                    print("Save failed")
                     return False
             #--------------------------------------------------------------
             
@@ -371,7 +371,7 @@ class CheckInCapture:
         try:
             clean_plate = plate_text.strip().upper().replace(" ", "_") if plate_text else "UNKNOWN"
 
-            print(f"\n✅ SAVING DATA FOR: {clean_plate}")
+            print(f"\nSAVING DATA FOR: {clean_plate}")
 
             face_saved = self.dataset_manager.save_face_vector(
                 name=clean_plate,
@@ -385,7 +385,7 @@ class CheckInCapture:
             )
 
             if not face_saved:
-                print("❌ Face save failed")
+                print("Face save failed")
 
                 send_checkin(
                     plate_number=clean_plate,
@@ -399,7 +399,7 @@ class CheckInCapture:
                 )
                 return False
 
-            print("✅ Face saved")
+            print("Face saved")
 
             plate_saved = self.dataset_manager.save_license_plate(
                 plate_text=plate_text,
@@ -411,7 +411,7 @@ class CheckInCapture:
             )
 
             if not plate_saved:
-                print("❌ Plate save failed")
+                print("Plate save failed")
 
                 send_checkin(
                     plate_number=clean_plate,
@@ -425,7 +425,7 @@ class CheckInCapture:
                 )
                 return False
 
-            print("✅ Plate saved")
+            print("Plate saved")
 
             self.dataset_manager.record_checkin(
                 plate_text=plate_text,
@@ -449,11 +449,11 @@ class CheckInCapture:
                 reason="ok"
             )
 
-            print("✅ CHECK-IN SUCCESS SENT")
+            print("CHECK-IN SUCCESS SENT")
             return True
 
         except Exception as e:
-            print(f"❌ Exception: {e}")
+            print(f"Exception: {e}")
 
             send_checkin(
                 plate_number="UNKNOWN",
@@ -495,28 +495,28 @@ class CheckInCapture:
     
     def cleanup(self):
         """Dọn dẹp resources"""
-        print("\n🧹 Cleaning up...")
+        print("\n Cleaning up...")
         self.face_cap.release()
         self.plate_cap.release()
         cv2.destroyAllWindows()
         
         print("\n" + "="*70)
-        print("📊 FINAL REPORT")
+        print(" FINAL REPORT")
         print("="*70)
-        print(f"\n✅ Total frames processed: {self.frame_count}")
-        print(f"✅ Faces detected: {self.face_count}")
-        print(f"✅ Plates detected: {self.plate_count}")
-        print(f"✅ Face-Plate pairs saved: {self.saved_count}")
+        print(f"\nTotal frames processed: {self.frame_count}")
+        print(f"Faces detected: {self.face_count}")
+        print(f"Plates detected: {self.plate_count}")
+        print(f"Face-Plate pairs saved: {self.saved_count}")
         
         # Final dataset stats
         summary = self.dataset_manager.get_summary()
-        print(f"\n📊 Final Dataset Status:")
-        print(f"   👤 Persons (by plate): {summary['faces']['total_persons']}")
-        print(f"   🔢 Face vectors: {summary['faces']['total_vectors']}")
-        print(f"   🚗 Unique plates: {summary['license_plates']['total_unique_plates']}")
-        print(f"   📷 Plate images: {summary['license_plates']['total_images']}")
+        print(f"\from django.utils.translation import ungettextFinal Dataset Status:")
+        print(f"    Persons (by plate): {summary['faces']['total_persons']}")
+        print(f"   Face vectors: {summary['faces']['total_vectors']}")
+        print(f"    Unique plates: {summary['license_plates']['total_unique_plates']}")
+        print(f"    Plate images: {summary['license_plates']['total_images']}")
         
-        print(f"\n📁 Saved to:")
+        print(f"\nSaved to:")
         print(f"   Faces: {summary['directories']['face_images']}")
         print(f"   Plates: {summary['directories']['lp_images']}")
         print("\n" + "="*70)
@@ -547,7 +547,7 @@ if __name__ == "__main__":
     print("   2. All AI models loaded")
     print("   3. Position yourself in front of camera with vehicle")
 
-    print("\n💡 BEHAVIOR:")
+    print("\nBEHAVIOR:")
     print("   • Detects faces continuously")
     print("   • Detects license plates continuously")
     print("   • Saves ONLY when BOTH are detected together")
@@ -558,8 +558,8 @@ if __name__ == "__main__":
     result = main()
 
     if result:
-        print("\n✅ CHECK-IN SUCCESS")
+        print("\nCHECK-IN SUCCESS")
         sys.exit(0) 
     else:
-        print("\n❌ CHECK-IN FAILED")
+        print("\nCHECK-IN FAILED")
         sys.exit(1) 
