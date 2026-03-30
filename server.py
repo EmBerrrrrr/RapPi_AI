@@ -11,30 +11,32 @@ def run_script(command):
     try:
         print("\n[RUN]", command)
 
-        result = subprocess.run(
+        process = subprocess.Popen(
             command,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=120,
             encoding='utf-8',
             errors='ignore'
         )
 
+        try:
+            stdout, stderr = process.communicate(timeout=120)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            print("TIMEOUT")
+            return False
+
         print("\n===== SCRIPT LOG =====")
-        print(result.stdout)
-        print(result.stderr)
-        print("[RETURN CODE]:", result.returncode)
+        print(stdout)
+        print(stderr)
+        print("[RETURN CODE]:", process.returncode)
 
-        return result.returncode == 0
-
-    except subprocess.TimeoutExpired:
-        print("TIMEOUT")
-        return False
+        return process.returncode == 0
 
     except Exception as e:
         print("ERROR:", e)
         return False
-
 
 # ================= VEHICLE (GIỮ NGUYÊN) =================
 @app.route('/checkin')
@@ -116,4 +118,4 @@ if __name__ == "__main__":
     for rule in app.url_map.iter_rules():
         print(rule)
 
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, threaded=True)
