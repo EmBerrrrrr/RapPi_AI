@@ -161,3 +161,7 @@ try:
     # lỗi HTTP
     print("HTTP ERROR")
     sys.exit(1)
+    
+except Exception as e:
+    print("REQUEST ERROR:", e)
+    sys.exit(1)
