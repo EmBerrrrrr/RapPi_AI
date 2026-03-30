@@ -1,9 +1,11 @@
 import sys
+import os
 import cv2
 import time
 import requests
 import urllib3
-
+sys.stdout.reconfigure(encoding='utf-8')
+os.environ["PYTHONIOENCODING"] = "utf-8"
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===== INPUT =====
@@ -141,14 +143,21 @@ try:
     print("[TEXT]", response.text)
 
     if response.status_code == 200:
-        data = response.json()
-        if data.get("is_success") is True:
-            print("MATCH SUCCESS")
-            sys.exit(0)
+        try:
+            data = response.json()
+            print("[JSON]", data)
 
-    print("MATCH FAIL")
-    sys.exit(1)
+            if data.get("success") is True:
+                print("MATCH SUCCESS")
+                sys.exit(0)   # ✅ OPEN
+            else:
+                print("MATCH FAIL")
+                sys.exit(2)   # ✅ DENY (AI thật)
 
-except Exception as e:
-    print("ERROR:", e)
+        except Exception as e:
+            print("JSON ERROR:", e)
+            sys.exit(1)       # lỗi hệ thống
+
+    # lỗi HTTP
+    print("HTTP ERROR")
     sys.exit(1)

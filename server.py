@@ -11,32 +11,31 @@ def run_script(command):
     try:
         print("\n[RUN]", command)
 
-        process = subprocess.Popen(
+        result = subprocess.run(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
+            timeout=120,
             encoding='utf-8',
-            errors='ignore'
+            errors='replace'
         )
 
-        try:
-            stdout, stderr = process.communicate(timeout=120)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            print("TIMEOUT")
-            return False
-
         print("\n===== SCRIPT LOG =====")
-        print(stdout)
-        print(stderr)
-        print("[RETURN CODE]:", process.returncode)
+        print(result.stdout)
+        print(result.stderr)
+        print("[RETURN CODE]:", result.returncode)
 
-        return process.returncode == 0
+        # ✅ FIX LOGIC Ở ĐÂY
+        if result.returncode == 0:
+            return "OPEN"
+        elif result.returncode == 2:
+            return "DENY"
+        else:
+            return "ERROR"
 
     except Exception as e:
         print("ERROR:", e)
-        return False
+        return "ERROR"
 
 # ================= VEHICLE (GIỮ NGUYÊN) =================
 @app.route('/checkin')
@@ -77,16 +76,19 @@ def face_checkin():
 
     script_path = os.path.join(BASE_DIR, "camera", "face_checkin_single_cam.py")
 
-    success = run_script([
+    result = run_script([
         "python",
         script_path,
         "checkin",
         token
     ])
 
-    return jsonify({
-        "status": "OPEN" if success else "DENY"
-    })
+    if result == "OPEN":
+        return jsonify({"status": "OPEN"})
+    elif result == "DENY":
+        return jsonify({"status": "DENY"})
+    else:
+        return jsonify({"status": "ERROR"})
 
 
 @app.route('/face_checkout', methods=['POST'])
