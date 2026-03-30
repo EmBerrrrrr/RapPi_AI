@@ -142,26 +142,40 @@ try:
     print("[STATUS]", response.status_code)
     print("[TEXT]", response.text)
 
+    # ===== HTTP OK =====
     if response.status_code == 200:
         try:
             data = response.json()
             print("[JSON]", data)
 
-            if data.get("success") is True:
+            # 🔥 FIX CHUẨN Ở ĐÂY
+            is_success = data.get("is_success", False)
+
+            if is_success:
                 print("MATCH SUCCESS")
-                sys.exit(0)   # ✅ OPEN
+                sys.exit(0)  
             else:
-                print("MATCH FAIL")
-                sys.exit(2)   # ✅ DENY (AI thật)
+                print("MATCH FAIL (BE returned is_success = False)")
+                sys.exit(2)   
 
         except Exception as e:
             print("JSON ERROR:", e)
-            sys.exit(1)       # lỗi hệ thống
+            sys.exit(1)   
 
-    # lỗi HTTP
-    print("HTTP ERROR")
+    # ===== HTTP FAIL =====
+    else:
+        print("HTTP ERROR:", response.status_code)
+        sys.exit(1)
+
+# ===== REQUEST FAIL =====
+except requests.exceptions.Timeout:
+    print("REQUEST TIMEOUT")
     sys.exit(1)
-    
+
+except requests.exceptions.ConnectionError:
+    print("CONNECTION ERROR")
+    sys.exit(1)
+
 except Exception as e:
     print("REQUEST ERROR:", e)
     sys.exit(1)
