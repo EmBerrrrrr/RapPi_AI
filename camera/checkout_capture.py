@@ -27,7 +27,7 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
+    def __init__(self, face_cam_id=1, plate_cam_id=0, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
         """
         Khởi tạo check-out capture
         Args:
@@ -93,7 +93,7 @@ class CheckOutCapture:
 
         self.verify_plate_text = None
         self.verify_start_time = None
-        self.verify_wait_sec = 5.0   # ⏳ chờ 5 giây để xác thực
+        self.verify_wait_sec = 2.0
 
     def start_checkout(self):
         """
@@ -278,7 +278,7 @@ class CheckOutCapture:
                                 gate_id=None,
                                 status="success" if match_result['success'] else "fail", 
                                 reason=match_result.get('reason'),
-                                parking_status = "Completed" if match_result['success'] else None                     
+                                #parking_status = "Completed" if match_result['success'] else None                     
                             )
 
                             print(f"📡 MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
@@ -330,18 +330,40 @@ class CheckOutCapture:
         return self.result
     
     def _verify_checkout(self, plate_text, checkout_face_embedding):
-        stored_vectors_dict = self.dataset_manager.get_all_face_vectors()
+        # ===== LẤY ẢNH THEO BIỂN SỐ =====
+        plate_dir = Path(self.dataset_manager.face_images_dir) / plate_text
 
-        if plate_text not in stored_vectors_dict:
+        if not plate_dir.exists():
             return {
                 'success': False,
                 'reason': 'plate_not_found',
-                'message': 'Không tìm thấy biển số',
+                'message': 'Khong tim thay bien so',
                 'similarity': 0.0
             }
 
-        stored_vectors = stored_vectors_dict[plate_text]
+        stored_vectors = []
 
+        for img_path in plate_dir.glob("*.jpg"):
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+
+            faces, _ = self.face_detector.extract_all_faces(img)
+            if len(faces) == 0:
+                continue
+
+            emb = self.face_recognizer.get_embedding(faces[0])
+            stored_vectors.append(emb)
+
+        if len(stored_vectors) == 0:
+            return {
+                'success': False,
+                'reason': 'no_face_data',
+                'message': 'Khong co du lieu khuon mat',
+                'similarity': 0.0
+            }
+
+        # ===== SO SANH =====
         max_similarity = 0.0
 
         for stored_vector in stored_vectors:
@@ -357,52 +379,56 @@ class CheckOutCapture:
             return {
                 'success': False,
                 'reason': 'face_not_match',
-                'message': 'Không khớp khuôn mặt',
+                'message': 'Khong khop khuon mat',
                 'similarity': max_similarity
             }
 
-        # ===== GỌI BE =====
+        # ===== GOI BACKEND =====
         backend_result = self.dataset_manager.update_checkout_to_backend(plate_text)
 
-        if not backend_result["success"]:
+        if not backend_result or not backend_result.get("success"):
             return {
                 'success': False,
                 'reason': 'backend_error',
-                'message': 'Lỗi kết nối BE',
+                'message': backend_result.get("message", "Loi BE"),
                 'similarity': max_similarity
             }
 
-        status = backend_result["status"]
+        status = backend_result.get("status") or backend_result.get("data", {}).get("status")
 
-        # ===== XỬ LÝ STATUS BE =====
-        if status == "Active":
+        if status:
+            status = status.lower()
+
+        print("STATUS:", status)
+
+        if status == "active":
             return {
                 'success': False,
                 'reason': 'not_paid',
-                'message': 'Chưa thanh toán',
+                'message': 'Chua thanh toan vui long thanh toan',
                 'similarity': max_similarity
             }
 
-        if status == "Pending":
+        if status == "pending":
             return {
                 'success': True,
                 'reason': 'match_success',
-                'message': 'Đã thanh toán - cho phép ra',
+                'message': 'Cho phep ra',
                 'similarity': max_similarity
             }
 
-        if status == "Completed":
+        if status == "completed":
             return {
                 'success': False,
                 'reason': 'already_checked_out',
-                'message': 'Xe máy này đã checkout trước đó',
+                'message': 'Da checkout',
                 'similarity': max_similarity
             }
 
         return {
             'success': False,
             'reason': 'unknown_status',
-            'message': 'Trạng thái không hợp lệ',
+            'message': 'Trang thai khong hop le',
             'similarity': max_similarity
         }
     
@@ -443,8 +469,8 @@ class CheckOutCapture:
 def main():
     try:
         checkout = CheckOutCapture(
-            face_cam_id=0,
-            plate_cam_id=1,
+            face_cam_id=1,
+            plate_cam_id=0,
             timeout_sec=60,
             similarity_threshold=0.70,
             plate_confidence_thresh=0.80

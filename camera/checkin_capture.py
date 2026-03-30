@@ -26,7 +26,7 @@ class CheckInCapture:
     Chỉ lưu dataset khi phát hiện cả 2
     """
     
-    def __init__(self, face_cam_id=0, plate_cam_id=1, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False, last_plate_logged=None):
+    def __init__(self, face_cam_id=1, plate_cam_id=0, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False, last_plate_logged=None):
         """
         Khởi tạo camera capture
         
@@ -525,8 +525,8 @@ class CheckInCapture:
 def main():
     try:
         capture = CheckInCapture(
-            face_cam_id=0,
-            plate_cam_id=1,
+            face_cam_id=1,
+            plate_cam_id=0,
             save_interval=60
         )
         result = capture.detect_and_capture()
