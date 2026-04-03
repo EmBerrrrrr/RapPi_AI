@@ -37,42 +37,35 @@ def run_script(command):
         return "ERROR"
 
 
-# CHECKIN
+# ================= CHECKIN =================
 @app.route('/checkin')
 def checkin():
     print("[VEHICLE CHECKIN]")
 
     script_path = os.path.join(BASE_DIR, "camera", "checkin_capture.py")
 
-    result = run_script(["python", script_path])
+    result = subprocess.run(
+        ["python", script_path],
+        capture_output=True,
+        text=True
+    )
 
-    return jsonify({
-        "status": result
-    })
+    if result.returncode == 0:
+        return jsonify({"status": "OPEN"})
+    else:
+        return jsonify({"status": "DENY"})
 
-
-# CHECKOUT
+# ================= CHECKOUT =================
 @app.route('/checkout')
 def checkout():
-    print("[VEHICLE CHECKOUT]")
-
     script_path = os.path.join(BASE_DIR, "camera", "checkout_capture.py")
-
     result = run_script(["python", script_path])
 
-    # FIX: trả thêm reason nếu cần
     if result == "OPEN":
-        return jsonify({
-            "status": "OPEN",
-            "reason": "paid"  
-        })
+        return jsonify({"status": "OPEN"})
     else:
-        return jsonify({
-            "status": "DENY",
-            "reason": "not_paid"  
-        })
-
-
+        return jsonify({"status": "DENY"})
+    
 # FACE CHECKIN
 @app.route('/face_checkin', methods=['POST'])
 def face_checkin():

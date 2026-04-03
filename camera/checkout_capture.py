@@ -27,7 +27,7 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self, face_cam_id=1, plate_cam_id=0, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
+    def __init__(self,frame_skip = 2,frame_count = 0,last_embedding_time = 0, face_cam_id=1, plate_cam_id=0, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
         """
         Khởi tạo check-out capture
         Args:
@@ -45,11 +45,16 @@ class CheckOutCapture:
         print("\n📸 Initializing camera...")
         self.face_cap = cv2.VideoCapture(face_cam_id)
         self.plate_cap = cv2.VideoCapture(plate_cam_id)
+        self.face_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.plate_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.frame_count = frame_count
+        self.frame_skip = frame_skip
+        self.last_embedding_time = last_embedding_time
         
         if not self.face_cap.isOpened():
-            raise RuntimeError(f"❌ Cannot open face camera {face_cam_id}")
+            raise RuntimeError(f"Cannot open face camera {face_cam_id}")
         if not self.plate_cap.isOpened():
-            raise RuntimeError(f"❌ Cannot open plate camera {plate_cam_id}")
+            raise RuntimeError(f"Cannot open plate camera {plate_cam_id}")
         
         # Set camera resolution
         self.face_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -60,22 +65,22 @@ class CheckOutCapture:
         self.plate_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.plate_cap.set(cv2.CAP_PROP_FPS, 30)
         
-        print(f"   ✅ Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
+        print(f"    Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
         
         # Initialize AI modules
         print("\n🤖 Initializing AI modules...")
         self.face_detector = FaceDetector()
-        print("   ✅ Face detector ready")
+        print("    Face detector ready")
         
         self.face_recognizer = FaceRecognizer()
-        print("   ✅ Face recognizer ready")
+        print("    Face recognizer ready")
         
         self.plate_detector = LicensePlateDetector()
-        print("   ✅ License plate detector ready")
+        print("    License plate detector ready")
         
         # Initialize dataset manager
         self.dataset_manager = DatasetManager()
-        print("   ✅ Dataset manager ready")
+        print("    Dataset manager ready")
         
         # Settings
         self.timeout_sec = float(timeout_sec)
@@ -84,11 +89,12 @@ class CheckOutCapture:
         
         # State
         self.start_time = None
+        self.last_embedding_time = 0
         self.checkout_plate = None
         self.checkout_face_embedding = None
         self.result = None
         
-        print("\n✅ All modules initialized successfully!")
+        print("\n All modules initialized successfully!")
         print("="*70)
 
         self.verify_plate_text = None
@@ -123,6 +129,7 @@ class CheckOutCapture:
         last_verify_time = 0
         
         while True:
+            self.frame_count += 1
             elapsed = time.time() - self.start_time
             remaining = self.timeout_sec - elapsed
             
@@ -131,7 +138,7 @@ class CheckOutCapture:
                 print(f"\n⏱️  TIME EXPIRED ({self.timeout_sec}s)")
                 self.result = {
                     'success': False,
-                    'message': '❌ TIMEOUT - Quá thời gian cho phép',
+                    'message': 'TIMEOUT - Quá thời gian cho phép',
                     'plate': None,
                     'similarity': None,
                     'duration_sec': elapsed,
@@ -139,64 +146,95 @@ class CheckOutCapture:
                 }
                 break
             
-            # Read frame
+            run_ai = (self.frame_count % self.frame_skip == 0)
+            
             ret_face, face_frame = self.face_cap.read()
             ret_plate, plate_frame = self.plate_cap.read()
 
             if not ret_face or not ret_plate:
-                print("❌ Camera read error")
+                print("Camera read error")
                 break
 
             # Detect face
             face_detected = False
             face_image = None
             face_embedding = None
-            
-            try:
-                faces, boxes = self.face_detector.extract_all_faces(face_frame)
-                if len(faces) > 0:
-                    face_detected = True
-                    face_image = faces[0]
-                    face_embedding = self.face_recognizer.get_embedding(face_image)
-            except Exception as e:
-                pass
-            
+
+            if not hasattr(self, "last_face_detected"):
+                self.last_face_detected = False
+                self.last_face_image = None
+
+            face_detected = self.last_face_detected
+            face_image = self.last_face_image
+            face_embedding = self.checkout_face_embedding
+
+            if run_ai:
+                try:
+                    faces, boxes = self.face_detector.extract_all_faces(face_frame)
+
+                    if len(faces) > 0:
+                        face_detected = True
+                        face_image = faces[0]
+
+                        if time.time() - self.last_embedding_time > 1:
+                            face_embedding = self.face_recognizer.get_embedding(face_image)
+                            self.last_embedding_time = time.time()
+                            self.checkout_face_embedding = face_embedding
+
+                        # SAVE STATE
+                        self.last_face_detected = True
+                        self.last_face_image = face_image
+
+                    else:
+                        # KHÔNG reset ngay → tránh flicker
+                        pass
+
+                except:
+                    pass
+                
             # Detect plate
             plate_detected = False
             plate_text = None
             plate_confidence = 0.0
             plate_bbox = None
-            
+            plate_image = None
+            if not hasattr(self, "last_plate_detected"):
+                self.last_plate_detected = False
+                self.last_plate_text = None
+                self.last_plate_image = None
+
+            plate_detected = self.last_plate_detected
+            plate_text = self.last_plate_text
+            plate_image = self.last_plate_image
+
             try:
-                detected_plates = self.plate_detector.detect(
-                    plate_frame,
-                    conf_threshold=self.plate_confidence_thresh
-                )
+                if self.frame_count % 2 == 0:
+                    detected_plates = self.plate_detector.detect(
+                        plate_frame,
+                        conf_threshold=self.plate_confidence_thresh
+                    )
+                else:
+                    detected_plates = []
+
                 if len(detected_plates) > 0:
-                    plate_detected = True
-                    best_result = detected_plates[0]
-                    raw_plate_text = best_result.get('text')
-                    plate_text = normalize_plate(raw_plate_text)
-                    print(f"RAW: {raw_plate_text} → CLEAN: {plate_text}")
-                    if plate_text:
+                    best = detected_plates[0]
+
+                    raw_plate_text = best.get('text')
+                    clean_plate = normalize_plate(raw_plate_text)
+
+                    if clean_plate:
                         plate_detected = True
-                    else:
-                        plate_detected = False
-                        plate_text = None
-                    plate_confidence = float(best_result.get('confidence', 0.0))
-                    plate_bbox = best_result.get('bbox')
-                    
-                    plate_image = None
+                        plate_text = clean_plate
 
-                    if plate_bbox and len(plate_bbox) == 4:
-                        x1, y1, x2, y2 = plate_bbox
+                        x1, y1, x2, y2 = best['bbox']
+                        plate_image = plate_frame[y1:y2, x1:x2]
 
-                        x1, y1 = max(0, x1), max(0, y1)
-                        x2, y2 = min(plate_frame.shape[1], x2), min(plate_frame.shape[0], y2)
+                        # SAVE STATE
+                        self.last_plate_detected = True
+                        self.last_plate_text = plate_text
+                        self.last_plate_image = plate_image
 
-                        if x2 > x1 and y2 > y1:
-                            plate_image = plate_frame[y1:y2, x1:x2]
-            except Exception as e:
+            except:
                 pass
             
             # Draw on frame
@@ -252,15 +290,15 @@ class CheckOutCapture:
                 if self.verify_plate_text != plate_text:
                     self.verify_plate_text = plate_text
                     self.verify_start_time = current_time
-                    print(f"⏳ Plate detected ({plate_text}) — waiting {self.verify_wait_sec}s to stabilize...")
+                    print(f"Plate detected ({plate_text}) — waiting {self.verify_wait_sec}s to stabilize...")
 
                 else:
                     elapsed_verify = current_time - self.verify_start_time
 
                     if elapsed_verify >= self.verify_wait_sec and current_time - last_verify_time > VERIFY_COOLDOWN:
 
-                        print(f"\n✅ Plate & Face stable for {self.verify_wait_sec}s")
-                        print("🔄 Verifying against database...")
+                        print(f"\n Plate & Face stable for {self.verify_wait_sec}s")
+                        print("Verifying against database...")
 
                         match_result = self._verify_checkout(plate_text, face_embedding)
 
@@ -274,18 +312,14 @@ class CheckOutCapture:
                                 camera_ip="192.168.1.20",
                                 face_img=face_image if match_result['success'] else None,
                                 plate_img=plate_image if match_result['success'] else None,
-                                lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
-                                gate_id=None,
-                                status="success" if match_result['success'] else "fail", 
-                                reason=match_result.get('reason'),
-                                #parking_status = "Completed" if match_result['success'] else None                     
+                                status="success" if match_result['success'] else "fail",
+                                reason=match_result.get('reason')
                             )
 
-                            print(f"📡 MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
+                            print(f" MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
 
                         except Exception as e:
-                            print(f"⚠️ MQTT send failed: {e}")
-
+                            print(f" MQTT send failed: {e}")
                         if match_result['success']:
 
                             checkout_info = self.dataset_manager.record_checkout(plate_text)
@@ -307,16 +341,16 @@ class CheckOutCapture:
                             break
 
                         else:
-                            print(f"❌ Verification failed ({match_result['reason']})")
-                            print(f"🔄 Retrying... Remaining: {remaining:.1f}s")
+                            print(f"Verification failed ({match_result['reason']})")
+                            print(f"Retrying... Remaining: {remaining:.1f}s")
             
             # Quit on 'q'
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
-                print("\n🛑 Cancelled by user")
+                print("\nCancelled by user")
                 self.result = {
                     'success': False,
-                    'message': '❌ CANCELLED',
+                    'message': 'CANCELLED',
                     'plate': None,
                     'similarity': None,
                     'duration_sec': elapsed,
@@ -382,55 +416,13 @@ class CheckOutCapture:
                 'message': 'Khong khop khuon mat',
                 'similarity': max_similarity
             }
-
-        # ===== GOI BACKEND =====
-        backend_result = self.dataset_manager.update_checkout_to_backend(plate_text)
-
-        if not backend_result or not backend_result.get("success"):
-            return {
-                'success': False,
-                'reason': 'backend_error',
-                'message': backend_result.get("message", "Loi BE"),
-                'similarity': max_similarity
-            }
-
-        status = backend_result.get("status") or backend_result.get("data", {}).get("status")
-
-        if status:
-            status = status.lower()
-
-        print("STATUS:", status)
-
-        if status == "active":
-            return {
-                'success': False,
-                'reason': 'not_paid',
-                'message': 'Chua thanh toan vui long thanh toan',
-                'similarity': max_similarity
-            }
-
-        if status == "pending":
+        else:
             return {
                 'success': True,
-                'reason': 'match_success',
-                'message': 'Cho phep ra',
+                'reason': 'face_match',
+                'message': 'Khuon mat hop le',
                 'similarity': max_similarity
             }
-
-        if status == "completed":
-            return {
-                'success': False,
-                'reason': 'already_checked_out',
-                'message': 'Da checkout',
-                'similarity': max_similarity
-            }
-
-        return {
-            'success': False,
-            'reason': 'unknown_status',
-            'message': 'Trang thai khong hop le',
-            'similarity': max_similarity
-        }
     
     def _display_result(self):
         """Hiển thị kết quả check-out"""
@@ -476,12 +468,9 @@ def main():
             plate_confidence_thresh=0.80
         )
         result = checkout.start_checkout()
-        if result.get("success"):
-            return "OPEN"
-        else:
-            return "DENY"
+        return result
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\nError: {e}")
         return "DENY"
     
 if __name__ == "__main__":
@@ -497,9 +486,9 @@ if __name__ == "__main__":
         
     result = main()
 
-    if result == "OPEN":
-        print(f"\n✅ CHECK-OUT SUCCESS")
-        sys.exit(0)   # SUCCESS
+    print(json.dumps(result))
+
+    if result.get("success"):
+        sys.exit(0)
     else:
-        print(f"\n❌ CHECK-OUT FAILED")
-        sys.exit(1)   # FAIL
+        sys.exit(1)

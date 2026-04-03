@@ -5,7 +5,6 @@ import cv2
 from pathlib import Path
 from datetime import datetime
 import pickle
-import requests
 
 class DatasetManager:
     def __init__(self, dataset_dir="dataset", output_dir="output"):
@@ -364,40 +363,6 @@ class DatasetManager:
         print("⚠️ No active check-in found")
         return None
 
-    def update_checkout_to_backend(self, plate_text):
-        try:
-            url = f"https://uninhibited-josette-complicatedly.ngrok-free.dev/api/v1/parking-sessions/status/plate/{plate_text}"
-
-            print("CALL API:", url)
-
-            res = requests.get(url, timeout=10)
-
-            print("STATUS CODE:", res.status_code)
-            print("RESPONSE:", res.text)
-
-            if res.status_code != 200:
-                return {
-                    "success": False,
-                    "status": None,
-                    "message": "http_error"
-                }
-
-            data = res.json()
-
-            return {
-                "success": True,
-                "status": data.get("data", {}).get("status"),
-                "message": data.get("message")
-            }
-
-        except Exception as e:
-            print(f"Backend error: {e}")
-            return {
-                "success": False,
-                "status": None,
-                "message": "backend_error"
-            }
-    
     # ============ UTILITY METHODS ============
     
     def list_saved_persons(self):

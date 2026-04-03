@@ -26,7 +26,7 @@ class CheckInCapture:
     Chỉ lưu dataset khi phát hiện cả 2
     """
     
-    def __init__(self, face_cam_id=1, plate_cam_id=0, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False, last_plate_logged=None):
+    def __init__(self,frame_skip = 2, last_embedding_time = 0, face_cam_id=1, plate_cam_id=0, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False, last_plate_logged=None):
         """
         Khởi tạo camera capture
         
@@ -41,11 +41,13 @@ class CheckInCapture:
         print("\nInitializing camera...")
         # Camera quét mặt (Laptop)
         self.face_cap = cv2.VideoCapture(face_cam_id)
+        self.face_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if not self.face_cap.isOpened():
             raise RuntimeError("Cannot open FACE camera")
 
         # Camera quét biển số (Iriun Webcam – điện thoại)
         self.plate_cap = cv2.VideoCapture(plate_cam_id)
+        self.plate_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if not self.plate_cap.isOpened():
             raise RuntimeError("Cannot open PLATE camera")
         
@@ -60,6 +62,9 @@ class CheckInCapture:
         self.plate_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.plate_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.plate_cap.set(cv2.CAP_PROP_FPS, 30)
+        
+        self.frame_skip = frame_skip
+        self.last_embedding_time = last_embedding_time
         
         print(f"   Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
         
@@ -96,6 +101,7 @@ class CheckInCapture:
         self.plate_lock_text = None
         self.plate_lock_start_time = None
         self.plate_lock_sec = 2.0
+        self.last_face_embedding = None
         # Statistics
         self.face_count = 0
         self.plate_count = 0
@@ -114,9 +120,9 @@ class CheckInCapture:
             'r' - Show report
             'q' - Quit
         """
-        print("\n📹 Starting camera capture...")
+        print("\n Starting camera capture...")
         print("━" * 70)
-        print("🎮 Controls:")
+        print(" Controls:")
         print("   's' - Manual save (if both detected)")
         print("   'r' - Show report")
         print("   'd' - Toggle debug mode")
@@ -143,70 +149,109 @@ class CheckInCapture:
                 break
 
             self.frame_count += 1
+            run_ai = (self.frame_count % self.frame_skip == 0)
             
             # Detect faces
-            face_detected = False
-            face_image = None
-            face_embedding = None
-            
-            try:
-                faces, boxes = self.face_detector.extract_all_faces(face_frame)
-                if len(faces) > 0:
-                    face_detected = True
-                    face_image = faces[0]  # Lấy khuôn mặt đầu tiên
-                    face_embedding = self.face_recognizer.get_embedding(face_image)
-                    self.face_count += 1
-            except Exception as e:
-                pass
-            plate_detected = False
-            plate_text = None
-            plate_image = None
-            plate_bbox = None
-            plate_confidence = 0.0
+            if not hasattr(self, "last_face_detected"):
+                self.last_face_detected = False
+                self.last_face_image = None
+
+            face_detected = self.last_face_detected
+            face_image = self.last_face_image
+            face_embedding = self.last_face_embedding
+
+            if run_ai:
+                try:
+                    faces, boxes = self.face_detector.extract_all_faces(face_frame)
+
+                    if len(faces) > 0:
+                        face_detected = True
+                        face_image = faces[0]
+
+                        if time.time() - self.last_embedding_time > 1:
+                            face_embedding = self.face_recognizer.get_embedding(face_image)
+                            self.last_embedding_time = time.time()
+                            self.last_face_embedding = face_embedding
+
+                        # SAVE STATE
+                        self.last_face_detected = True
+                        self.last_face_image = face_image
+                        self.face_count += 1
+
+                except:
+                    pass
+                
+            if not hasattr(self, "last_plate_detected"):
+                self.last_plate_detected = False
+                self.last_plate_text = None
+                self.last_plate_image = None
+                self.last_plate_bbox = None
+                self.last_plate_confidence = 0.0
+
+            plate_detected = self.last_plate_detected
+            plate_text = self.last_plate_text
+            plate_image = self.last_plate_image
+            plate_bbox = self.last_plate_bbox
+            plate_confidence = self.last_plate_confidence
             plate_text_stable = None
-            
+
             try:
-                detected_plates = self.plate_detector.detect(plate_frame, conf_threshold=0.4)
+                if self.frame_count % 2 == 0:
+                    detected_plates = self.plate_detector.detect(plate_frame, conf_threshold=0.4)
+                else:
+                    detected_plates = []
+
                 if len(detected_plates) > 0:
-                    plate_detected = True
                     best_result = detected_plates[0]
+
                     raw_plate_text = best_result.get('text')
-                    plate_text = normalize_plate(raw_plate_text)
-                    print(f"RAW: {raw_plate_text} → CLEAN: {plate_text}")
-                    if plate_text:
+                    clean_plate = normalize_plate(raw_plate_text)
+
+                    if clean_plate:
                         plate_detected = True
-                    else:
-                        plate_detected = False
-                        plate_text = None
-                    plate_bbox = best_result.get('bbox')
-                    plate_confidence = float(best_result.get('confidence', 0.0))
+                        plate_text = clean_plate
 
-                    plate_text_stable = None
+                        plate_bbox = best_result.get('bbox')
+                        plate_confidence = float(best_result.get('confidence', 0.0))
 
-                    if plate_text:
-                        now = time.time()
-                        if self.plate_lock_text != plate_text:
-                            self.plate_lock_text = plate_text
-                            self.plate_lock_start_time = now
-                        else:
-                            if now - self.plate_lock_start_time >= self.plate_lock_sec:
-                                plate_text_stable = self.plate_lock_text
+                        # ===== STABLE TEXT (GIỮ NGUYÊN) =====
+                        if plate_text:
+                            now = time.time()
+                            if self.plate_lock_text != plate_text:
+                                self.plate_lock_text = plate_text
+                                self.plate_lock_start_time = now
+                            else:
+                                if now - self.plate_lock_start_time >= self.plate_lock_sec:
+                                    plate_text_stable = self.plate_lock_text
+
                             if plate_text_stable:
                                 plate_text = plate_text_stable
-                    # Crop plate from frame if bbox valid
-                    if plate_bbox and len(plate_bbox) == 4:
-                        x1, y1, x2, y2 = plate_bbox
-                        # clamp coords
-                        x1, y1 = max(0, x1), max(0, y1)
-                        x2, y2 = min(plate_frame.shape[1], x2), min(plate_frame.shape[0], y2)
-                        if x2 > x1 and y2 > y1:
-                            plate_image = plate_frame[y1:y2, x1:x2]
 
-                    # Chỉ đếm nếu plate text hợp lệ và khác plate đã lưu
-                    if plate_text and plate_text != "Unknown" and plate_text != self.last_saved_plate:
-                        self.plate_count += 1
+                        # ===== CROP =====
+                        if plate_bbox and len(plate_bbox) == 4:
+                            x1, y1, x2, y2 = plate_bbox
+                            x1, y1 = max(0, x1), max(0, y1)
+                            x2, y2 = min(plate_frame.shape[1], x2), min(plate_frame.shape[0], y2)
+
+                            if x2 > x1 and y2 > y1:
+                                plate_image = plate_frame[y1:y2, x1:x2]
+
+                        # ===== SAVE STATE (QUAN TRỌNG NHẤT) =====
+                        self.last_plate_detected = True
+                        self.last_plate_text = plate_text
+                        self.last_plate_image = plate_image
+                        self.last_plate_bbox = plate_bbox
+                        self.last_plate_confidence = plate_confidence
+
+                        # COUNT
+                        if plate_text and plate_text != "Unknown" and plate_text != self.last_saved_plate:
+                            self.plate_count += 1
+
+                else:
+                    pass
+
             except Exception as e:
-                print(f"⚠️  Plate detection error: {e}")
+                print(f"Plate detection error: {e}")
             
             # Draw on frame
             face_display = face_frame.copy()
@@ -258,17 +303,17 @@ class CheckInCapture:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
             
             # Detection status
-            detection_status = "🔴 NO DETECTION"
+            detection_status = " NO DETECTION"
             if face_detected and plate_detected:
-                detection_status = "🟢 BOTH DETECTED - READY TO SAVE"
+                detection_status = " BOTH DETECTED - READY TO SAVE"
                 cv2.putText(face_display, detection_status, (10, 470),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             elif face_detected:
-                detection_status = "🟡 FACE DETECTED (waiting for plate)"
+                detection_status = " FACE DETECTED (waiting for plate)"
                 cv2.putText(face_display, detection_status, (10, 470),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             elif plate_detected:
-                detection_status = "🟡 PLATE DETECTED (waiting for face)"
+                detection_status = " PLATE DETECTED (waiting for face)"
                 cv2.putText(plate_display, detection_status, (10, 470),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             
@@ -392,8 +437,6 @@ class CheckInCapture:
                     face_img=None,
                     plate_img=None,
                     camera_ip="192.168.1.20",
-                    lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
-                    gate_id=None,
                     status="fail",
                     reason="face_save_failed"
                 )
@@ -418,8 +461,6 @@ class CheckInCapture:
                     face_img=None,
                     plate_img=None,
                     camera_ip="192.168.1.20",
-                    lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
-                    gate_id=None,
                     status="fail",
                     reason="plate_save_failed"
                 )
@@ -443,8 +484,6 @@ class CheckInCapture:
                 face_img=face_image,
                 plate_img=plate_image,
                 camera_ip="192.168.1.20",
-                lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
-                gate_id=None,
                 status="success",
                 reason="ok"
             )
@@ -460,8 +499,6 @@ class CheckInCapture:
                 face_img=None,
                 plate_img=None,
                 camera_ip="192.168.1.20",
-                lot_id="0c3b5fb8-a45b-4726-b2b3-a0c3a0ae25b8",
-                gate_id=None,
                 status="fail",
                 reason="exception"
             )
