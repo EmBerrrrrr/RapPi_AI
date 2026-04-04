@@ -38,7 +38,7 @@ class CheckOutCapture:
             plate_confidence_thresh: Ngưỡng confidence cho biển số
         """
         print("\n" + "="*70)
-        print("🚗 CHECK-OUT CAPTURE - INITIALIZATION")
+        print("CHECK-OUT CAPTURE - INITIALIZATION")
         print("="*70)
         
         # Initialize camera
@@ -68,7 +68,7 @@ class CheckOutCapture:
         print(f"    Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
         
         # Initialize AI modules
-        print("\n🤖 Initializing AI modules...")
+        print("\nInitializing AI modules...")
         self.face_detector = FaceDetector()
         print("    Face detector ready")
         
@@ -117,10 +117,10 @@ class CheckOutCapture:
                 }
         """
         print("\n" + "="*70)
-        print("🚗 CHECK-OUT PROCESS STARTED")
+        print("CHECK-OUT PROCESS STARTED")
         print("="*70)
-        print(f"\n⏱️  TIME LIMIT: {self.timeout_sec} seconds")
-        print("📸 Scanning face and license plate...")
+        print(f"\n⏱TIME LIMIT: {self.timeout_sec} seconds")
+        print("Scanning face and license plate...")
         print("━" * 70)
         
         self.start_time = time.time()
@@ -135,7 +135,7 @@ class CheckOutCapture:
             
             # Check timeout
             if elapsed >= self.timeout_sec:
-                print(f"\n⏱️  TIME EXPIRED ({self.timeout_sec}s)")
+                print(f"\n⏱TIME EXPIRED ({self.timeout_sec}s)")
                 self.result = {
                     'success': False,
                     'message': 'TIMEOUT - Quá thời gian cho phép',
@@ -317,28 +317,10 @@ class CheckOutCapture:
                             )
 
                             print(f" MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
-
+                            print("Verification done → waiting BE decision")
                         except Exception as e:
                             print(f" MQTT send failed: {e}")
-                        if match_result['success']:
 
-                            checkout_info = self.dataset_manager.record_checkout(plate_text)
-
-                            self.result = {
-                                'success': True,
-                                'message': match_result['message'],
-                                'plate': plate_text,
-                                'similarity': match_result.get('similarity'),
-                                'duration_sec': elapsed_total,
-                                'reason': match_result.get('reason')
-                            }
-
-                            if checkout_info:
-                                self.result['time_in'] = checkout_info.get('time_in')
-                                self.result['time_out'] = checkout_info.get('time_out')
-                                self.result['parking_duration_sec'] = checkout_info.get('duration_sec')
-
-                            break
 
                         else:
                             print(f"Verification failed ({match_result['reason']})")
@@ -430,7 +412,7 @@ class CheckOutCapture:
             return
         
         print("\n" + "="*70)
-        print("📋 CHECK-OUT RESULT")
+        print(" CHECK-OUT RESULT")
         print("="*70)
         
         success = self.result['success']
@@ -441,7 +423,7 @@ class CheckOutCapture:
         reason = self.result.get('reason', 'unknown')
         
         print(f"\n{message}")
-        print(f"\n📊 Details:")
+        print(f"\n Details:")
         print(f"   Plate: {plate if plate else 'N/A'}")
         print(f"   Similarity: {f'{similarity:.1%}' if similarity is not None else 'N/A'}")
         print(f"   Duration: {duration:.2f}s")
@@ -474,21 +456,18 @@ def main():
         return "DENY"
     
 if __name__ == "__main__":
-    print("\n🚀 PARKING CHECK-OUT SYSTEM")
+    print("\n PARKING CHECK-OUT SYSTEM")
     print("=" * 70)
-    print("\n📋 PROCESS:")
+    print("\n PROCESS:")
     print("   1. Scan face and license plate")
     print("   2. Find matching record in database")
     print("   3. Compare face similarity (>= 70%)")
     print("   4. Show result (success/failure)")
-    print("\n⏱️  TIME LIMIT: 30 seconds")
+    print("\n⏱  TIME LIMIT: 30 seconds")
     print("🎮 Press 'q' to cancel\n")
         
     result = main()
 
     print(json.dumps(result))
 
-    if result.get("success"):
-        sys.exit(0)
-    else:
-        sys.exit(1)
+    sys.exit(0)
