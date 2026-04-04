@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import subprocess
 import os
 import threading
+import mqtt_client
 
 app = Flask(__name__)
 
@@ -136,5 +137,13 @@ if __name__ == "__main__":
 
     for rule in app.url_map.iter_rules():
         print(rule)
+
+    mqtt_client.client.connect(mqtt_client.BROKER_IP, mqtt_client.PORT, 60)
+    mqtt_client.client.loop_start()
+    
+    mqtt_client.send_camera_status("face_in")
+    mqtt_client.send_camera_status("plate_in")
+    mqtt_client.send_camera_status("face_out")
+    mqtt_client.send_camera_status("plate_out")
 
     app.run(host="0.0.0.0", port=5000, threaded=True)
