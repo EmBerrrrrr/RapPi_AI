@@ -88,7 +88,12 @@ def checkin_result():
 #  CHECKOUT 
 @app.route('/checkout')
 def checkout():
+    global checkout_status
+
+    checkout_status = {"status": "PROCESSING"}  
+
     threading.Thread(target=run_checkout_ai).start()
+
     return jsonify({"status": "TRIGGERED"})
 
 

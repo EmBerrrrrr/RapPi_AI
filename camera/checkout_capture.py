@@ -316,13 +316,13 @@ class CheckOutCapture:
                                 reason=match_result.get('reason')
                             )
 
-                            print(f" MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
+                            print(f"MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
                             print("Verification done → waiting BE decision")
+
                         except Exception as e:
-                            print(f" MQTT send failed: {e}")
+                            print(f"MQTT send failed: {e}")
 
-
-                        else:
+                        if not match_result['success']:
                             print(f"Verification failed ({match_result['reason']})")
                             print(f"Retrying... Remaining: {remaining:.1f}s")
             
