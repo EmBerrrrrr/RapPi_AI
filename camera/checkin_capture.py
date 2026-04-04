@@ -11,6 +11,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 import time
+from mqtt_client import register_config_callback
 
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
@@ -107,9 +108,21 @@ class CheckInCapture:
         self.plate_count = 0
         self.saved_count = 0
         self.last_saved_plate = None
+        self.lot_name = "Bãi Xe Đại Học FPT"
         
         print("\nAll modules initialized successfully!")
         print("="*70)
+    
+    def update_config(self, config):
+        if config.get("lot_name") != self.lot_name:
+            return
+
+        if "plate_confidence_thresh" in config:
+            self.plate_confidence_thresh = max(
+                0.0, min(1.0, float(config["plate_confidence_thresh"]))
+            )
+
+        print(f"[CHECKIN CONFIG UPDATED] plate={self.plate_confidence_thresh}")
     
     def detect_and_capture(self):
         """
@@ -375,7 +388,8 @@ class CheckInCapture:
                     face_image,
                     face_embedding,
                     plate_text_stable,
-                    plate_image
+                    plate_image,
+                    plate_confidence
                 )
 
                 if success:
@@ -412,7 +426,7 @@ class CheckInCapture:
         self.cleanup()
         return False
     
-    def _save_face_and_plate(self, face_image, face_embedding, plate_text, plate_image):
+    def _save_face_and_plate(self, face_image, face_embedding, plate_text, plate_image, plate_confidence):
         try:
             clean_plate = plate_text.strip().upper().replace(" ", "_") if plate_text else "UNKNOWN"
 
@@ -438,7 +452,10 @@ class CheckInCapture:
                     plate_img=None,
                     camera_ip="192.168.1.20",
                     status="fail",
-                    reason="face_save_failed"
+                    reason="face_save_failed",
+                    lot_name=self.lot_name,
+                    confidence_score=plate_confidence,
+                    processing_time_ms=int(time.time() * 1000)
                 )
                 return False
 
@@ -462,7 +479,10 @@ class CheckInCapture:
                     plate_img=None,
                     camera_ip="192.168.1.20",
                     status="fail",
-                    reason="plate_save_failed"
+                    reason="plate_save_failed",
+                    lot_name=self.lot_name,
+                    confidence_score=plate_confidence,
+                    processing_time_ms=int(time.time() * 1000)
                 )
                 return False
 
@@ -485,7 +505,10 @@ class CheckInCapture:
                 plate_img=plate_image,
                 camera_ip="192.168.1.20",
                 status="success",
-                reason="ok"
+                reason="ok",
+                lot_name=self.lot_name,
+                confidence_score=plate_confidence,
+                processing_time_ms=int(time.time() * 1000)
             )
 
             print("CHECK-IN SUCCESS SENT")
@@ -500,7 +523,10 @@ class CheckInCapture:
                 plate_img=None,
                 camera_ip="192.168.1.20",
                 status="fail",
-                reason="exception"
+                reason="exception",
+                lot_name=self.lot_name,
+                confidence_score=plate_confidence,
+                processing_time_ms=int(time.time() * 1000)
             )
 
             return False
@@ -566,6 +592,7 @@ def main():
             plate_cam_id=0,
             save_interval=60
         )
+        register_config_callback(capture.update_config)
         result = capture.detect_and_capture()
         if result:
             return "OPEN"
@@ -574,7 +601,7 @@ def main():
     except Exception as e:
         print(f"\n Error: {e}")
         return "DENY"
-
+    
 if __name__ == "__main__":
     print("\n DUAL CAMERA CAPTURE WITH DATASET SAVING")
     print("=" * 70)

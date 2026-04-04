@@ -11,6 +11,7 @@ import time
 import json
 import pickle
 import difflib
+from mqtt_client import register_config_callback
 
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
@@ -93,6 +94,7 @@ class CheckOutCapture:
         self.checkout_plate = None
         self.checkout_face_embedding = None
         self.result = None
+        self.lot_name = "Bãi Xe Đại Học FPT"
         
         print("\n All modules initialized successfully!")
         print("="*70)
@@ -100,6 +102,22 @@ class CheckOutCapture:
         self.verify_plate_text = None
         self.verify_start_time = None
         self.verify_wait_sec = 2.0
+
+    def update_config(self, config):
+        if config.get("lot_name") != self.lot_name:
+            return
+
+        if "similarity_threshold" in config:
+            self.similarity_threshold = max(
+                0.0, min(1.0, float(config["similarity_threshold"]))
+            )
+
+        if "plate_confidence_thresh" in config:
+            self.plate_confidence_thresh = max(
+                0.0, min(1.0, float(config["plate_confidence_thresh"]))
+            )
+
+        print(f"[CHECKOUT CONFIG UPDATED] sim={self.similarity_threshold}")
 
     def start_checkout(self):
         """
@@ -123,6 +141,7 @@ class CheckOutCapture:
         print("Scanning face and license plate...")
         print("━" * 70)
         
+        current_similarity_threshold = self.similarity_threshold
         self.start_time = time.time()
         # checkout_success = False
         VERIFY_COOLDOWN = 2
@@ -196,7 +215,6 @@ class CheckOutCapture:
             plate_detected = False
             plate_text = None
             plate_confidence = 0.0
-            plate_bbox = None
             plate_image = None
             if not hasattr(self, "last_plate_detected"):
                 self.last_plate_detected = False
@@ -225,7 +243,7 @@ class CheckOutCapture:
                     if clean_plate:
                         plate_detected = True
                         plate_text = clean_plate
-
+                        plate_bbox = best.get('bbox')
                         x1, y1, x2, y2 = best['bbox']
                         plate_image = plate_frame[y1:y2, x1:x2]
 
@@ -295,32 +313,48 @@ class CheckOutCapture:
                 else:
                     elapsed_verify = current_time - self.verify_start_time
 
-                    if elapsed_verify >= self.verify_wait_sec and current_time - last_verify_time > VERIFY_COOLDOWN:
+                    if elapsed_verify >= self.verify_wait_sec and self.result is None and current_time - last_verify_time > VERIFY_COOLDOWN:
 
                         print(f"\n Plate & Face stable for {self.verify_wait_sec}s")
                         print("Verifying against database...")
 
-                        match_result = self._verify_checkout(plate_text, face_embedding)
+                        match_result = self._verify_checkout(plate_text, face_embedding, current_similarity_threshold)
 
                         last_verify_time = current_time
                         elapsed_total = time.time() - self.start_time
 
-                        try:
-                            send_checkout(
-                                plate_number=plate_text if plate_text else "UNKNOWN",
-                                similarity=match_result.get('similarity'),
-                                camera_ip="192.168.1.20",
-                                face_img=face_image if match_result['success'] else None,
-                                plate_img=plate_image if match_result['success'] else None,
-                                status="success" if match_result['success'] else "fail",
-                                reason=match_result.get('reason')
-                            )
+                        if match_result['success']:
+                            print("\n MATCH SUCCESS → Sending MQTT")
 
-                            print(f"MQTT sent ({'SUCCESS' if match_result['success'] else 'FAIL'})")
-                            print("Verification done → waiting BE decision")
+                            try:
+                                send_checkout(
+                                    plate_number=plate_text,
+                                    similarity=match_result.get('similarity'),
+                                    camera_ip="192.168.1.20",
+                                    face_img=face_image,
+                                    plate_img=plate_image,
+                                    status="success",
+                                    reason="face_match",
+                                    lot_name=self.lot_name,
+                                    confidence_score=plate_confidence,
+                                    processing_time_ms=int((time.time() - self.start_time) * 1000)
+                                )
 
-                        except Exception as e:
-                            print(f"MQTT send failed: {e}")
+                                print("MQTT SENT → WAITING FOR BE RESPONSE")
+
+                                self.result = {
+                                    'success': True,
+                                    'message': 'CHECKOUT SUCCESS',
+                                    'plate': plate_text,
+                                    'similarity': match_result.get('similarity'),
+                                    'duration_sec': elapsed_total,
+                                    'reason': 'face_match'
+                                }
+
+                                break
+
+                            except Exception as e:
+                                print(f"MQTT send failed: {e}")
 
                         if not match_result['success']:
                             print(f"Verification failed ({match_result['reason']})")
@@ -345,7 +379,7 @@ class CheckOutCapture:
         
         return self.result
     
-    def _verify_checkout(self, plate_text, checkout_face_embedding):
+    def _verify_checkout(self, plate_text, checkout_face_embedding, threshold):
         # ===== LẤY ẢNH THEO BIỂN SỐ =====
         plate_dir = Path(self.dataset_manager.face_images_dir) / plate_text
 
@@ -391,7 +425,7 @@ class CheckOutCapture:
             if similarity > max_similarity:
                 max_similarity = similarity
 
-        if max_similarity < self.similarity_threshold:
+        if max_similarity < threshold:
             return {
                 'success': False,
                 'reason': 'face_not_match',
@@ -449,7 +483,9 @@ def main():
             similarity_threshold=0.70,
             plate_confidence_thresh=0.80
         )
+        register_config_callback(checkout.update_config)
         result = checkout.start_checkout()
+        
         return result
     except Exception as e:
         print(f"\nError: {e}")
