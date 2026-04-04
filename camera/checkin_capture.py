@@ -11,7 +11,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 import time
-from mqtt_client import register_config_callback
+from mqtt_client import register_config_callback, send_camera_event
 
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
@@ -445,12 +445,12 @@ class CheckInCapture:
 
             if not face_saved:
                 print("Face save failed")
-
+                send_camera_event("face_in")
+                send_camera_event("plate_in")
                 send_checkin(
                     plate_number=clean_plate,
                     face_img=None,
                     plate_img=None,
-                    camera_ip="192.168.1.20",
                     status="fail",
                     reason="face_save_failed",
                     lot_name=self.lot_name,
@@ -472,12 +472,12 @@ class CheckInCapture:
 
             if not plate_saved:
                 print("Plate save failed")
-
+                send_camera_event("face_in")
+                send_camera_event("plate_in")
                 send_checkin(
                     plate_number=clean_plate,
                     face_img=None,
                     plate_img=None,
-                    camera_ip="192.168.1.20",
                     status="fail",
                     reason="plate_save_failed",
                     lot_name=self.lot_name,
@@ -498,12 +498,12 @@ class CheckInCapture:
             )
 
             self.saved_count += 1
-
+            send_camera_event("face_in")
+            send_camera_event("plate_in")
             send_checkin(
                 plate_number=clean_plate,
                 face_img=face_image,
                 plate_img=plate_image,
-                camera_ip="192.168.1.20",
                 status="success",
                 reason="ok",
                 lot_name=self.lot_name,
@@ -516,12 +516,12 @@ class CheckInCapture:
 
         except Exception as e:
             print(f"Exception: {e}")
-
+            send_camera_event("face_in")
+            send_camera_event("plate_in")
             send_checkin(
                 plate_number="UNKNOWN",
                 face_img=None,
                 plate_img=None,
-                camera_ip="192.168.1.20",
                 status="fail",
                 reason="exception",
                 lot_name=self.lot_name,

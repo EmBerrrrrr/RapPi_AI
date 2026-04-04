@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import json
 import cv2
+import os
 import time
 import ssl
 import cloudinary
@@ -8,13 +9,14 @@ import cloudinary.uploader
 import uuid
 from datetime import datetime, timezone
 
-# CLOUDINARY
+#  CLOUDINARY 
 cloudinary.config(
     cloud_name="motoguard",
     api_key="711384225714966",
     api_secret="MIVAF9tZKhYLvuLnsu2BypzxSbk"
 )
-# CAMERA IP CONFIG (HARDCODE)
+
+#  CAMERA CONFIG 
 CAMERA_CONFIG = {
     "Bãi Xe Đại Học FPT": {
         "facein": "192.168.1.10",
@@ -23,7 +25,8 @@ CAMERA_CONFIG = {
         "plateout": "192.168.1.21"
     }
 }
-# MQTT CONFIG
+
+#  MQTT CONFIG 
 BROKER_IP = "l112e911.ala.asia-southeast1.emqxsl.com"
 PORT = 8883
 
@@ -34,19 +37,16 @@ TOPIC_CHECKIN = "parking/checkin"
 TOPIC_CHECKOUT = "parking/checkout"
 TOPIC_CONFIG = "parking/config/update"
 
-client = mqtt.Client(
-    client_id=f"parking_system_{uuid.uuid4().hex[:6]}",
-    clean_session=True
-)
+client = mqtt.Client(client_id=f"parking_ai_{uuid.uuid4().hex[:6]}")
 
 client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2)
 
-
+#  CONNECT 
 def on_connect(client, userdata, flags, rc):
     print("MQTT CONNECT RC =", rc)
     client.subscribe(TOPIC_CONFIG)
-    
+
 def on_message(client, userdata, msg):
     try:
         data = json.loads(msg.payload.decode())
@@ -57,10 +57,9 @@ def on_message(client, userdata, msg):
 
     except Exception as e:
         print("MQTT CONFIG ERROR:", e)
-        
-client.on_connect = on_connect
 
-client.on_message = on_message  
+client.on_connect = on_connect
+client.on_message = on_message
 
 def register_config_callback(callback):
     client.config_callback = callback
@@ -71,112 +70,180 @@ def ensure_connected():
             client.reconnect()
         except:
             client.connect(BROKER_IP, PORT, 60)
-            
-client.connect(BROKER_IP, PORT, 60)
-client.loop_start()
 
-
+#  CLOUDINARY 
 def upload_to_cloudinary(image, folder, prefix):
     if image is None:
         return None
 
-    try:
-        success, buffer = cv2.imencode('.jpg', image)
-        if not success:
-            return None
-
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-
-        result = cloudinary.uploader.upload(
-            buffer.tobytes(),
-            folder=folder,
-            public_id=f"{prefix}_{timestamp}"
-        )
-
-        return result.get("secure_url")
-
-    except Exception as e:
-        print("Cloudinary error:", e)
+    success, buffer = cv2.imencode('.jpg', image)
+    if not success:
         return None
 
+    result = cloudinary.uploader.upload(
+        buffer.tobytes(),
+        folder=folder,
+        public_id=f"{prefix}_{int(time.time())}"
+    )
 
-def publish_with_retry(topic, payload, retries=3, delay=1):
-    for attempt in range(retries):
+    return result.get("secure_url")
+
+#  MQTT SEND 
+def publish_with_retry(topic, payload, retries=3):
+    for i in range(retries):
         try:
             ensure_connected()
-            result = client.publish(topic, json.dumps(payload), qos=1)
-
-            if result.rc == 0:
-                print(f"MQTT SENT (attempt {attempt+1})")
+            res = client.publish(topic, json.dumps(payload), qos=1)
+            if res.rc == 0:
+                print("MQTT SENT")
                 return True
-
         except Exception as e:
-            print(f"MQTT ERROR (attempt {attempt+1}):", e)
-
-        time.sleep(delay)
-
-    print("MQTT FAILED AFTER RETRY")
+            print("MQTT ERROR:", e)
+        time.sleep(1)
     return False
 
-# CHECK-IN
-def send_checkin(plate_number, face_img=None, plate_img=None,
-                 status="success", reason="ok", lot_name=None,
-                 confidence_score=None, processing_time_ms=None):
+#  CAMERA SERIAL 
+SERIAL_FILE = "camera_serial.json"
 
-    face_url = upload_to_cloudinary(face_img, "parking/checkin/faces", f"{plate_number}_face")
-    plate_url = upload_to_cloudinary(plate_img, "parking/checkin/plates", f"{plate_number}_plate")
+def load_serial():
+    if os.path.exists(SERIAL_FILE):
+        with open(SERIAL_FILE, "r") as f:
+            return json.load(f)
 
-    camera_info = CAMERA_CONFIG.get(lot_name, {})
+    serials = {
+        k: str(uuid.uuid4())[:6]
+        for k in ["face_in", "plate_in", "face_out", "plate_out"]
+    }
+
+    with open(SERIAL_FILE, "w") as f:
+        json.dump(serials, f, indent=4)
+
+    return serials
+
+serials = load_serial()
+
+#  CAMERA DEVICES 
+CAMERA_DEVICES = {
+    "face_in": {
+        "device_code": f"face_camera_in_{serials['face_in']}",
+        "device_name": "Face Camera In",
+        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["facein"]
+    },
+    "plate_in": {
+        "device_code": f"plate_camera_in_{serials['plate_in']}",
+        "device_name": "Plate Camera In",
+        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["platein"]
+    },
+    "face_out": {
+        "device_code": f"face_camera_out_{serials['face_out']}",
+        "device_name": "Face Camera Out",
+        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["faceout"]
+    },
+    "plate_out": {
+        "device_code": f"plate_camera_out_{serials['plate_out']}",
+        "device_name": "Plate Camera Out",
+        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["plateout"]
+    }
+}
+
+#  CAMERA 
+def send_camera_event(key):
+    cam = CAMERA_DEVICES[key]
+
+    payload = {
+        "device_code": cam["device_code"],
+        "device_name": cam["device_name"],
+        "device_type": "camera",
+        "event_type": "Detect",
+        "event_source": "AI",
+        "event_status": "Success",
+        "ts": int(time.time())
+    }
+
+    topic = f"parking/{cam['device_code']}/event"
+    publish_with_retry(topic, payload)
+
+def send_camera_status(key):
+    cam = CAMERA_DEVICES[key]
+
+    payload = {
+        "device_code": cam["device_code"],
+        "device_name": cam["device_name"],
+        "device_type": "camera",
+        "cameraIp": cam["cameraIp"],
+        "status": "online",
+        "ts": int(time.time())
+    }
+
+    topic = f"parking/{cam['device_code']}/status"
+    publish_with_retry(topic, payload)
+
+#  CHECK-IN 
+def send_checkin(plate_number, face_img, plate_img,
+                 status, reason, lot_name,
+                 confidence_score, processing_time_ms):
+
+    # ✅ CAMERA FIRST
+    send_camera_event("face_in")
+    send_camera_event("plate_in")
+
+    face_url = upload_to_cloudinary(face_img, "checkin/faces", plate_number)
+    plate_url = upload_to_cloudinary(plate_img, "checkin/plates", plate_number)
+
+    cam = CAMERA_CONFIG[lot_name]
 
     payload = {
         "event": "checkin",
+        "plateNumber": plate_number,
         "status": status,
         "reason": reason,
-        "plateNumber": plate_number,
         "timeIn": datetime.now(timezone.utc).isoformat(),
-        "faceCameraIp": camera_info.get("facein", "0.0.0.0"),
-        "plateCameraIp": camera_info.get("platein", "0.0.0.0"),
+        "faceCameraIp": cam["facein"],
+        "plateCameraIp": cam["platein"],
         "faceImageUrl": face_url,
         "plateImageUrl": plate_url,
-        "lotName": lot_name,
         "confidenceScore": confidence_score,
         "processingTimeMs": processing_time_ms
     }
 
-    success = publish_with_retry(TOPIC_CHECKIN, payload)
+    publish_with_retry(TOPIC_CHECKIN, payload)
 
-    if success:
-        print("CHECK-IN SENT")
-    else:
-        print("CHECK-IN LOST")
-
-
-# CHECK-OUT
+#  CHECK-OUT 
 def send_checkout(plate_number, similarity,
                   face_img, plate_img,
-                  status="success", reason="ok", lot_name=None,
-                  confidence_score=None, processing_time_ms=None):
+                  status, reason, lot_name,
+                  confidence_score, processing_time_ms):
 
-    face_url = upload_to_cloudinary(face_img, "parking/checkout/faces", f"{plate_number}_face")
-    plate_url = upload_to_cloudinary(plate_img, "parking/checkout/plates", f"{plate_number}_plate")
+    send_camera_event("face_out")
+    send_camera_event("plate_out")
 
-    camera_info = CAMERA_CONFIG.get(lot_name, {})
+    face_url = upload_to_cloudinary(face_img, "checkout/faces", plate_number)
+    plate_url = upload_to_cloudinary(plate_img, "checkout/plates", plate_number)
+
+    cam = CAMERA_CONFIG[lot_name]
 
     payload = {
         "event": "checkout",
         "plateNumber": plate_number,
-        "timeOut": datetime.now(timezone.utc).isoformat(),
         "status": status,
         "reason": reason,
         "similarity": similarity,
-        "faceCameraIp": camera_info.get("faceout", "0.0.0.0"),
-        "plateCameraIp": camera_info.get("plateout", "0.0.0.0"),
+        "timeOut": datetime.now(timezone.utc).isoformat(),
+        "faceCameraIp": cam["faceout"],
+        "plateCameraIp": cam["plateout"],
         "faceImageUrl": face_url,
         "plateImageUrl": plate_url,
-        "lotName": lot_name,
         "confidenceScore": confidence_score,
         "processingTimeMs": processing_time_ms
     }
 
     publish_with_retry(TOPIC_CHECKOUT, payload)
-    
+
+#  INIT 
+client.connect(BROKER_IP, PORT, 60)
+client.loop_start()
+
+send_camera_status("face_in")
+send_camera_status("plate_in")
+send_camera_status("face_out")
+send_camera_status("plate_out")
