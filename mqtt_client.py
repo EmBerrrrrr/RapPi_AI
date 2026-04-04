@@ -32,7 +32,7 @@ MQTT_PASSWORD = "tien2908"
 
 TOPIC_CHECKIN = "parking/checkin"
 TOPIC_CHECKOUT = "parking/checkout"
-TOPIC_CONFIG = "parking/config/#"
+TOPIC_CONFIG = "parking/config/update"
 
 client = mqtt.Client(
     client_id=f"parking_system_{uuid.uuid4().hex[:6]}",
