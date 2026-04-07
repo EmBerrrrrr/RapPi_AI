@@ -108,6 +108,7 @@ def checkout_result():
 
 # FACE CHECKIN 
 @app.route('/face_checkin', methods=['POST'])
+
 def face_checkin():
     token = (request.json or {}).get("token", "")
 

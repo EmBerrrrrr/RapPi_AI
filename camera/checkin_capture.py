@@ -36,6 +36,7 @@ class CheckInCapture:
         """
         print("\n" + "="*70)
         print("DUAL CAMERA CAPTURE - INITIALIZATION")
+        
         print("="*70)
         
         # Initialize camera

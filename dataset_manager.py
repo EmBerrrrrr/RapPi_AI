@@ -361,6 +361,7 @@ class DatasetManager:
 
         if active_checkin is None:
             print(f"[CHECKOUT ERROR] No active check-in: {plate_text}")
+            
             return {
                 "success": False,
                 "reason": "no_active_checkin"

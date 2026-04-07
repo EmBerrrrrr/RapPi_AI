@@ -55,6 +55,7 @@ class CheckOutCapture:
         if not self.face_cap.isOpened():
             raise RuntimeError(f"Cannot open face camera {face_cam_id}")
         if not self.plate_cap.isOpened():
+            
             raise RuntimeError(f"Cannot open plate camera {plate_cam_id}")
         
         # Set camera resolution

@@ -63,6 +63,7 @@ def on_message(client, userdata, msg):
             print("[CONFIG RECEIVED]", data)
             if config_callback and data:
                 config_callback(data)
+                
             return 
 
         if msg.topic == "parking/responses":
