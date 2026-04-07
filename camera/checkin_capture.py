@@ -382,7 +382,7 @@ class CheckInCapture:
                         
             # Detect_and_capture--------------------------------------------------
             if ready_to_save and plate_text_stable and plate_text_stable != self.last_saved_plate:
-                print("💾 SAVING AFTER 5s STABLE DETECTION")
+                print("SAVING AFTER 5s STABLE DETECTION")
 
                 success = self._save_face_and_plate(
                     face_image,

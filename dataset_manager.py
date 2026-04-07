@@ -115,7 +115,7 @@ class DatasetManager:
             return True
             
         except Exception as e:
-            print(f"❌ Lỗi lưu vector khuôn mặt: {e}")
+            print(f" Lỗi lưu vector khuôn mặt: {e}")
             return False
     
     def get_all_face_vectors(self):
@@ -150,7 +150,7 @@ class DatasetManager:
             plate_text = plate_text.strip().upper()
             
             if not plate_text or len(plate_text) < 4:
-                print(f"⚠️ Biển số không hợp lệ: {plate_text}")
+                print(f"Biển số không hợp lệ: {plate_text}")
                 return False
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -188,7 +188,7 @@ class DatasetManager:
             return True
             
         except Exception as e:
-            print(f"❌ Lỗi lưu biển số: {e}")
+            print(f" Lỗi lưu biển số: {e}")
             return False
     
     def get_license_plate_stats(self):
@@ -308,7 +308,7 @@ class DatasetManager:
         # ❗ CHỈ CẤM nếu có check-in CHƯA checkout
         for c in self.lp_data[plate_text]['checkins']:
             if c.get('status') == 'checked_in' and c.get('time_out') is None:
-                print("⚠️ Plate already checked-in (open session)")
+                print("Plate already checked-in (open session)")
                 return False
 
         # Tạo phiên check-in mới
@@ -324,12 +324,12 @@ class DatasetManager:
         self.lp_data[plate_text]['updated_at'] = timestamp
         self._save_json(self.lp_data, self.lp_db)
 
-        print(f"🟢 CHECK-IN {plate_text} at {timestamp}")
+        print(f"CHECK-IN {plate_text} at {timestamp}")
         return True
 
     # ============ CHECK-OUT METHODS ============
 
-    def record_checkout(self, plate_text):
+    def record_checkout(self, plate_text, metadata=None):
         """
         Ghi nhận CHECK-OUT (time_out) cho biển số
         """
@@ -337,43 +337,80 @@ class DatasetManager:
         timestamp = datetime.now().isoformat()
 
         if plate_text not in self.lp_data:
-            print("❌ Plate not found for checkout")
-            return None
+            print(f"[CHECKOUT ERROR] Plate not found: {plate_text}")
+            return {
+                "success": False,
+                "reason": "plate_not_found"
+            }
 
-        if 'checkins' not in self.lp_data[plate_text]:
-            print("❌ No check-in history for plate")
-            return None
+        plate_record = self.lp_data[plate_text]
 
-        # Tìm check-in gần nhất chưa checkout
-        for c in reversed(self.lp_data[plate_text]['checkins']):
+        if 'checkins' not in plate_record or len(plate_record['checkins']) == 0:
+            print(f"[CHECKOUT ERROR] No check-in history: {plate_text}")
+            return {
+                "success": False,
+                "reason": "no_checkin_history"
+            }
+
+        # 👉 tìm check-in gần nhất chưa checkout
+        active_checkin = None
+        for c in reversed(plate_record['checkins']):
             if c.get('status') == 'checked_in':
-                c['time_out'] = timestamp
-                c['status'] = 'checked_out'
+                active_checkin = c
+                break
 
-                t_in = datetime.fromisoformat(c['time_in'])
-                t_out = datetime.fromisoformat(timestamp)
-                c['duration_sec'] = (t_out - t_in).total_seconds()
+        if active_checkin is None:
+            print(f"[CHECKOUT ERROR] No active check-in: {plate_text}")
+            return {
+                "success": False,
+                "reason": "no_active_checkin"
+            }
 
-                self.lp_data[plate_text]['updated_at'] = timestamp
-                self._save_json(self.lp_data, self.lp_db)
+        # 👉 update record
+        active_checkin['time_out'] = timestamp
+        active_checkin['status'] = 'checked_out'
 
-                print(f"🔴 CHECK-OUT {plate_text} at {timestamp}")
-                return c
+        # duration
+        try:
+            t_in = datetime.fromisoformat(active_checkin['time_in'])
+            t_out = datetime.fromisoformat(timestamp)
+            active_checkin['duration_sec'] = (t_out - t_in).total_seconds()
+        except Exception as e:
+            print(f"[CHECKOUT WARNING] duration calc error: {e}")
+            active_checkin['duration_sec'] = None
 
-        print("⚠️ No active check-in found")
-        return None
+        # 👉 lưu metadata (QUAN TRỌNG cho debug MQTT)
+        if metadata:
+            active_checkin['checkout_metadata'] = metadata
+
+        plate_record['updated_at'] = timestamp
+
+        # 👉 OPTIONAL: set trạng thái tổng thể
+        plate_record['current_status'] = 'OUT'
+
+        # 👉 save DB
+        self._save_json(self.lp_data, self.lp_db)
+
+        print(f"[CHECKOUT SUCCESS] {plate_text} at {timestamp}")
+
+        return {
+            "success": True,
+            "plate": plate_text,
+            "time_out": timestamp,
+            "duration_sec": active_checkin.get("duration_sec")
+        }
 
     # ============ UTILITY METHODS ============
     
     def list_saved_persons(self):
         """Liệt kê danh sách người đã lưu"""
-        print("\n📋 Danh sách người đã lưu:")
+        print("\nDanh sách người đã lưu:")
         for i, (name, data) in enumerate(self.faces_data.items(), 1):
             print(f"   {i}. {name} - {data['count']} vectors")
     
     def list_saved_plates(self):
         """Liệt kê danh sách biển số đã lưu"""
-        print("\n📋 Danh sách biển số đã lưu:")
+        print("\nDanh sách biển số đã lưu:")
         for i, (plate, data) in enumerate(self.lp_data.items(), 1):
             print(f"   {i}. {plate} - {data['count']} images")
     

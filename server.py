@@ -27,22 +27,25 @@ def run_script(command):
             errors='replace'
         )
 
-        print("\n SCRIPT LOG ")
+        print("\n=== SCRIPT LOG ===")
         print(result.stdout)
-        print(result.stderr)
-        print("[RETURN CODE]:", result.returncode)
 
-        if result.returncode == 0:
-            return "OPEN"
-        elif result.returncode == 2:
-            return "DENY"
-        else:
+        try:
+            last_line = result.stdout.strip().split("\n")[-1]
+            data = json.loads(last_line)
+
+            if data.get("success"):
+                return "OPEN"
+            else:
+                return "DENY"
+
+        except Exception as e:
+            print("JSON parse failed:", e)
             return "ERROR"
 
     except Exception as e:
         print("ERROR:", e)
         return "ERROR"
-
 
 #  THREAD CHECKIN 
 def run_checkin_ai():
@@ -60,11 +63,13 @@ def run_checkout_ai():
 
     script_path = os.path.join(BASE_DIR, "camera", "checkout_capture.py")
 
-    run_script(["python", script_path])
+    result = run_script(["python", script_path])
 
     checkout_status = {
-        "status": "DONE"
+        "status": result 
     }
+
+    print(f"[CHECKOUT RESULT]: {result}")
 
 
 #  CHECKIN 
@@ -97,6 +102,9 @@ def checkout():
 
     return jsonify({"status": "TRIGGERED"})
 
+@app.route('/checkout_result')
+def checkout_result():
+    return jsonify(checkout_status)
 
 # FACE CHECKIN 
 @app.route('/face_checkin', methods=['POST'])

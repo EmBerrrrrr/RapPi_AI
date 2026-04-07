@@ -32,7 +32,6 @@ PORT = 8883
 
 MQTT_USERNAME = "tien2908"
 MQTT_PASSWORD = "tien2908"
-
 TOPIC_CHECKIN = "parking/checkin"
 TOPIC_CHECKOUT = "parking/checkout"
 TOPIC_CONFIG = "parking/config/update"
@@ -45,18 +44,34 @@ client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2)
 #  CONNECT 
 def on_connect(client, userdata, flags, rc):
     print("MQTT CONNECT RC =", rc)
+
     client.subscribe(TOPIC_CONFIG)
+
+    client.subscribe("parking/responses")
 
 def on_message(client, userdata, msg):
     try:
-        data = json.loads(msg.payload.decode())
-        print("CONFIG RECEIVED:", data)
+        payload = msg.payload.decode()
+        print("[MQTT RECEIVED]", msg.topic, payload)
 
-        if hasattr(client, "config_callback"):
-            client.config_callback(data)
+        try:
+            data = json.loads(payload)
+        except:
+            data = None
+
+        if msg.topic == TOPIC_CONFIG:
+            print("[CONFIG RECEIVED]", data)
+            if config_callback and data:
+                config_callback(data)
+            return 
+
+        if msg.topic == "parking/responses":
+            if response_callback:
+                response_callback(payload)
+            return
 
     except Exception as e:
-        print("MQTT CONFIG ERROR:", e)
+        print("MQTT ERROR:", e)
 
 client.on_connect = on_connect
 client.on_message = on_message
@@ -183,7 +198,6 @@ def send_checkin(plate_number, face_img, plate_img,
                  status, reason, lot_name,
                  confidence_score, processing_time_ms):
 
-    # ✅ CAMERA FIRST
     send_camera_event("face_in")
     send_camera_event("plate_in")
 
@@ -238,7 +252,17 @@ def send_checkout(plate_number, similarity,
     }
 
     publish_with_retry(TOPIC_CHECKOUT, payload)
+response_callback = None
 
+def register_response_callback(callback):
+    global response_callback
+    response_callback = callback
+
+config_callback = None
+
+def register_config_callback(callback):
+    global config_callback
+    config_callback = callback
 #  INIT 
 client.connect(BROKER_IP, PORT, 60)
 client.loop_start()

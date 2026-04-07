@@ -11,7 +11,7 @@ import time
 import json
 import pickle
 import difflib
-from mqtt_client import register_config_callback, send_camera_event
+from mqtt_client import register_config_callback, send_camera_event, register_response_callback
 
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
@@ -94,6 +94,9 @@ class CheckOutCapture:
         self.checkout_plate = None
         self.checkout_face_embedding = None
         self.result = None
+        self.mqtt_response = None
+        self.mqtt_reason = None 
+        register_response_callback(self.on_mqtt_response)
         self.lot_name = "Bãi Xe Đại Học FPT"
         
         print("\n All modules initialized successfully!")
@@ -329,7 +332,7 @@ class CheckOutCapture:
                             try:
                                 send_camera_event("face_out")
                                 send_camera_event("plate_out")
-
+                                self.checkout_plate = plate_text
                                 send_checkout(
                                     plate_number=plate_text,
                                     similarity=match_result.get('similarity'),
@@ -344,8 +347,39 @@ class CheckOutCapture:
 
                                 print("MQTT SENT → WAITING FOR BE RESPONSE")
 
+                                self.mqtt_response = None
+                                self.mqtt_reason = None  # reset
+
+                                wait_start = time.time()
+                                timeout = 5  # giây
+
+                                while self.mqtt_response is None and time.time() - wait_start < timeout:
+                                    time.sleep(0.1)
+
+                                if self.mqtt_response == "OPEN":
+                                    print("BE ALLOW → OPEN GATE")
+
+                                    result = self.dataset_manager.record_checkout(
+                                        plate_text=plate_text,
+                                        metadata={
+                                            "source": "mqtt_response",
+                                            "reason": self.mqtt_reason
+                                        }
+                                    )
+
+                                    print(f" Dataset updated: {result}")
+
+                                elif self.mqtt_response == "DENY":
+                                    print(" BE DENY → DO NOT OPEN")
+                                    break
+
+                                else:
+                                    print(" NO RESPONSE FROM BE")
+                                    break
+
+                                success_flag = True if self.mqtt_response == "OPEN" else False
                                 self.result = {
-                                    'success': True,
+                                    'success': success_flag,
                                     'message': 'CHECKOUT SUCCESS',
                                     'plate': plate_text,
                                     'similarity': match_result.get('similarity'),
@@ -476,6 +510,31 @@ class CheckOutCapture:
             self.plate_cap.release()
         cv2.destroyAllWindows()
 
+    def on_mqtt_response(self, payload):
+        try:
+            data = json.loads(payload)
+
+            if data.get("event") != "checkout_result":
+                return 
+
+            plate = data.get("plateNumber")
+            status = data.get("status") 
+            reason = data.get("reason")
+
+            print(f"[MQTT RESPONSE] plate={plate}, status={status}, reason={reason}")
+
+            if not plate:
+                return
+
+            if self.checkout_plate and plate != self.checkout_plate:
+                print("Ignore response (not current plate)")
+                return
+
+            self.mqtt_response = status
+            self.mqtt_reason = reason   # 👈 QUAN TRỌNG
+
+        except Exception as e:
+            print(f"[MQTT ERROR] {e}")
 def main():
     try:
         checkout = CheckOutCapture(
