@@ -20,6 +20,7 @@ from dataset_manager import DatasetManager
 from mqtt_client import send_checkout
 from datetime import datetime, timezone
 from plate_utils import normalize_plate
+from ip_camera import IPCamera
 
 class CheckOutCapture:
     """
@@ -28,7 +29,7 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self,frame_skip = 2,frame_count = 0,last_embedding_time = 0, face_cam_id=1, plate_cam_id=0, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
+    def __init__(self,frame_skip = 2,frame_count = 0,last_embedding_time = 0, face_cam_url=None, plate_cam_url=None, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
         """
         Khởi tạo check-out capture
         Args:
@@ -44,28 +45,13 @@ class CheckOutCapture:
         
         # Initialize camera
         print("\n📸 Initializing camera...")
-        self.face_cap = cv2.VideoCapture(face_cam_id)
-        self.plate_cap = cv2.VideoCapture(plate_cam_id)
-        self.face_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.plate_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.face_cam = IPCamera(face_cam_url)
+        self.plate_cam = IPCamera(plate_cam_url)
+
+        print("Camera IP initialized")
         self.frame_count = frame_count
         self.frame_skip = frame_skip
         self.last_embedding_time = last_embedding_time
-        
-        if not self.face_cap.isOpened():
-            raise RuntimeError(f"Cannot open face camera {face_cam_id}")
-        if not self.plate_cap.isOpened():
-            
-            raise RuntimeError(f"Cannot open plate camera {plate_cam_id}")
-        
-        # Set camera resolution
-        self.face_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.face_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.face_cap.set(cv2.CAP_PROP_FPS, 30)
-        
-        self.plate_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.plate_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.plate_cap.set(cv2.CAP_PROP_FPS, 30)
         
         print(f"    Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
         
@@ -171,12 +157,11 @@ class CheckOutCapture:
             
             run_ai = (self.frame_count % self.frame_skip == 0)
             
-            ret_face, face_frame = self.face_cap.read()
-            ret_plate, plate_frame = self.plate_cap.read()
+            face_frame = self.face_cam.get_frame()
+            plate_frame = self.plate_cam.get_frame()
 
-            if not ret_face or not ret_plate:
-                print("Camera read error")
-                break
+            if face_frame is None or plate_frame is None:
+                continue
 
             # Detect face
             face_detected = False
@@ -218,7 +203,7 @@ class CheckOutCapture:
             # Detect plate
             plate_detected = False
             plate_text = None
-            plate_confidence = 0.0
+            plate_confidence = best.get('confidence', 0.0)
             plate_image = None
             if not hasattr(self, "last_plate_detected"):
                 self.last_plate_detected = False
@@ -503,12 +488,6 @@ class CheckOutCapture:
         print("\n" + "="*70)
     
     def cleanup(self):
-        """Dọn dẹp resources"""
-        if self.face_cap:
-            self.face_cap.release()
-
-        if self.plate_cap:
-            self.plate_cap.release()
         cv2.destroyAllWindows()
 
     def on_mqtt_response(self, payload):
@@ -539,8 +518,8 @@ class CheckOutCapture:
 def main():
     try:
         checkout = CheckOutCapture(
-            face_cam_id=1,
-            plate_cam_id=0,
+            face_cam_url="http://192.168.100.137:8081/photo",
+            plate_cam_url="http://192.168.100.138:8081/photo",
             timeout_sec=60,
             similarity_threshold=0.70,
             plate_confidence_thresh=0.80

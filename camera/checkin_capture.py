@@ -20,6 +20,7 @@ from dataset_manager import DatasetManager
 from mqtt_client import send_checkin
 from datetime import datetime, timezone
 from plate_utils import normalize_plate
+from ip_camera import IPCamera
 
 class CheckInCapture:
     """
@@ -27,7 +28,7 @@ class CheckInCapture:
     Chỉ lưu dataset khi phát hiện cả 2
     """
     
-    def __init__(self,frame_skip = 2, last_embedding_time = 0, face_cam_id=1, plate_cam_id=0, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False, last_plate_logged=None):
+    def __init__(self,frame_skip = 2, last_embedding_time = 0, face_cam_url=None, plate_cam_url=None, save_interval=60, face_blur_thresh=50.0, plate_confidence_thresh=0.8, min_face_size=240, face_quality_percent_thresh=0.8, auto_stop_after_save=False, last_plate_logged=None):
         """
         Khởi tạo camera capture
         
@@ -42,33 +43,13 @@ class CheckInCapture:
         # Initialize camera
         print("\nInitializing camera...")
         # Camera quét mặt (Laptop)
-        self.face_cap = cv2.VideoCapture(face_cam_id)
-        self.face_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        if not self.face_cap.isOpened():
-            raise RuntimeError("Cannot open FACE camera")
-
-        # Camera quét biển số (Iriun Webcam – điện thoại)
-        self.plate_cap = cv2.VideoCapture(plate_cam_id)
-        self.plate_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        if not self.plate_cap.isOpened():
-            raise RuntimeError("Cannot open PLATE camera")
-        
-        if not self.face_cap.isOpened():
-            raise RuntimeError(f"Cannot open face camera")
-             
-        # Set face camera resolution
-        self.face_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.face_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.face_cap.set(cv2.CAP_PROP_FPS, 30)
-        # Set plate camera resolution
-        self.plate_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.plate_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.plate_cap.set(cv2.CAP_PROP_FPS, 30)
+        self.face_cam = IPCamera(face_cam_url)
+        self.plate_cam = IPCamera(plate_cam_url)
         
         self.frame_skip = frame_skip
         self.last_embedding_time = last_embedding_time
         
-        print(f"   Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
+        print(f"Camera opened (URL mode)")
         
         # Initialize AI modules
         print("\n Initializing AI modules...")
@@ -146,21 +127,14 @@ class CheckInCapture:
         debug_mode = False
         
         while True:
-            ret_face, face_frame = self.face_cap.read()
-            ret_plate, plate_frame = self.plate_cap.read()
+            face_frame = self.face_cam.get_frame()
+            plate_frame = self.plate_cam.get_frame()
 
-            if not ret_face or face_frame is None:
-                continue
-
-            if not ret_plate or plate_frame is None:
+            if face_frame is None or plate_frame is None:
                 continue
 
             face_display = face_frame.copy()
             plate_display = plate_frame.copy()
-
-            if not ret_face or not ret_plate:
-                print("Camera read error")
-                break
 
             self.frame_count += 1
             run_ai = (self.frame_count % self.frame_skip == 0)
@@ -535,10 +509,10 @@ class CheckInCapture:
     def _show_report(self):
         """Hiển thị báo cáo thống kê"""
         print("\n" + "="*70)
-        print("📊 STATISTICS REPORT")
+        print(" STATISTICS REPORT")
         print("="*70)
         
-        print(f"\n📹 Camera Statistics:")
+        print(f"\n Camera Statistics:")
         print(f"   Total frames: {self.frame_count}")
         print(f"   Faces detected: {self.face_count}")
         print(f"   Plates detected: {self.plate_count}")
@@ -547,11 +521,11 @@ class CheckInCapture:
         # Get dataset stats
         summary = self.dataset_manager.get_summary()
         
-        print(f"\n👤 Face Database:")
+        print(f"\n Face Database:")
         print(f"   Total persons: {summary['faces']['total_persons']}")
         print(f"   Total vectors: {summary['faces']['total_vectors']}")
         
-        print(f"\n🚗 License Plate Database:")
+        print(f"\n License Plate Database:")
         print(f"   Total plates: {summary['license_plates']['total_unique_plates']}")
         print(f"   Total images: {summary['license_plates']['total_images']}")
         
@@ -560,8 +534,6 @@ class CheckInCapture:
     def cleanup(self):
         """Dọn dẹp resources"""
         print("\n Cleaning up...")
-        self.face_cap.release()
-        self.plate_cap.release()
         cv2.destroyAllWindows()
         
         print("\n" + "="*70)
@@ -589,8 +561,8 @@ class CheckInCapture:
 def main():
     try:
         capture = CheckInCapture(
-            face_cam_id=1,
-            plate_cam_id=0,
+            face_cam_url="http://192.168.100.135:8081/photo",
+            plate_cam_url="http://192.168.100.136:8081/photo",
             save_interval=60
         )
         register_config_callback(capture.update_config)
