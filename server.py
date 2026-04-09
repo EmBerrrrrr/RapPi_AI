@@ -60,21 +60,19 @@ def run_checkin_ai():
 
 #  HEARTBEAT CAMERA (gửi mỗi 5 phút)
 def camera_heartbeat():
+    time.sleep(60)
+
     while True:
         if not mqtt_client.connected:
             time.sleep(1)
             continue
 
-        try:
-            print("\n[HEARTBEAT] Sending camera status...")
+        print("\n[HEARTBEAT] Sending camera status...")
 
-            mqtt_client.send_camera_status("face_in")
-            mqtt_client.send_camera_status("plate_in")
-            mqtt_client.send_camera_status("face_out")
-            mqtt_client.send_camera_status("plate_out")
-
-        except Exception as e:
-            print("[HEARTBEAT ERROR]:", e)
+        mqtt_client.send_camera_status("face_in")
+        mqtt_client.send_camera_status("plate_in")
+        mqtt_client.send_camera_status("face_out")
+        mqtt_client.send_camera_status("plate_out")
 
         time.sleep(60)  # 300s = 5 phút
 

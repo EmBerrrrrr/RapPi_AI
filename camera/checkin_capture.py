@@ -11,7 +11,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 import time
-from mqtt_client import register_config_callback, send_camera_event
+from mqtt_client import register_config_callback
 
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
@@ -420,8 +420,6 @@ class CheckInCapture:
 
             if not face_saved:
                 print("Face save failed")
-                send_camera_event("face_in")
-                send_camera_event("plate_in")
                 send_checkin(
                     plate_number=clean_plate,
                     face_img=None,
@@ -447,8 +445,8 @@ class CheckInCapture:
 
             if not plate_saved:
                 print("Plate save failed")
-                send_camera_event("face_in")
-                send_camera_event("plate_in")
+                
+                
                 send_checkin(
                     plate_number=clean_plate,
                     face_img=None,
@@ -473,8 +471,8 @@ class CheckInCapture:
             )
 
             self.saved_count += 1
-            send_camera_event("face_in")
-            send_camera_event("plate_in")
+            
+            
             send_checkin(
                 plate_number=clean_plate,
                 face_img=face_image,
@@ -491,8 +489,8 @@ class CheckInCapture:
 
         except Exception as e:
             print(f"Exception: {e}")
-            send_camera_event("face_in")
-            send_camera_event("plate_in")
+            
+            
             send_checkin(
                 plate_number="UNKNOWN",
                 face_img=None,

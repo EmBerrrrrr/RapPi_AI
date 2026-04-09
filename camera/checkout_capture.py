@@ -11,7 +11,7 @@ import time
 import json
 import pickle
 import difflib
-from mqtt_client import register_config_callback, send_camera_event, register_response_callback
+from mqtt_client import register_config_callback, register_response_callback
 
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
@@ -321,8 +321,6 @@ class CheckOutCapture:
                             print("\n MATCH SUCCESS → Sending MQTT")
 
                             try:
-                                send_camera_event("face_out")
-                                send_camera_event("plate_out")
                                 self.checkout_plate = plate_text
                                 send_checkout(
                                     plate_number=plate_text,
@@ -545,8 +543,8 @@ if __name__ == "__main__":
     print("   2. Find matching record in database")
     print("   3. Compare face similarity (>= 70%)")
     print("   4. Show result (success/failure)")
-    print("\n⏱  TIME LIMIT: 30 seconds")
-    print("🎮 Press 'q' to cancel\n")
+    print("\n TIME LIMIT: 30 seconds")
+    print(" Press 'q' to cancel\n")
         
     result = main()
 

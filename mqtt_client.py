@@ -17,7 +17,17 @@ cloudinary.config(
 )
 
 def clean_ip(url):
-    return url.replace("admin:admin@", "")
+    try:
+        url = url.replace("http://", "").replace("https://", "")
+
+        if "@" in url:
+            url = url.split("@")[1]
+
+        ip = url.split(":")[0]
+
+        return ip
+    except:
+        return url
 
 #  CAMERA CONFIG 
 CAMERA_CONFIG = {
