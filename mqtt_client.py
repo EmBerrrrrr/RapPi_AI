@@ -202,6 +202,10 @@ def send_camera_status(key):
     }
 
     topic = f"parking/{cam['device_code']}/status"
+
+    print("[MQTT SEND]", topic)
+    print("[PAYLOAD]", payload)
+
     publish_with_retry(topic, payload)
 
 #  CHECK-IN 
