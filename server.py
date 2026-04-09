@@ -3,6 +3,8 @@ import subprocess
 import os
 import threading
 import mqtt_client
+import time
+import json
 
 app = Flask(__name__)
 
@@ -56,6 +58,25 @@ def run_checkin_ai():
 
     checkin_status = {"status": result}
 
+#  HEARTBEAT CAMERA (gửi mỗi 5 phút)
+def camera_heartbeat():
+    while True:
+        if not mqtt_client.connected:
+            time.sleep(1)
+            continue
+
+        try:
+            print("\n[HEARTBEAT] Sending camera status...")
+
+            mqtt_client.send_camera_status("face_in")
+            mqtt_client.send_camera_status("plate_in")
+            mqtt_client.send_camera_status("face_out")
+            mqtt_client.send_camera_status("plate_out")
+
+        except Exception as e:
+            print("[HEARTBEAT ERROR]:", e)
+
+        time.sleep(60)  # 300s = 5 phút
 
 #  THREAD CHECKOUT 
 def run_checkout_ai():
@@ -149,10 +170,8 @@ if __name__ == "__main__":
 
     mqtt_client.client.connect(mqtt_client.BROKER_IP, mqtt_client.PORT, 60)
     mqtt_client.client.loop_start()
-    
-    mqtt_client.send_camera_status("face_in")
-    mqtt_client.send_camera_status("plate_in")
-    mqtt_client.send_camera_status("face_out")
-    mqtt_client.send_camera_status("plate_out")
+    time.sleep(2)
+
+    threading.Thread(target=camera_heartbeat, daemon=True).start()
 
     app.run(host="0.0.0.0", port=5000, threaded=True)

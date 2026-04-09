@@ -46,11 +46,18 @@ client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2)
 
 #  CONNECT 
 def on_connect(client, userdata, flags, rc):
+    global connected
+    connected = True
+
     print("MQTT CONNECT RC =", rc)
 
     client.subscribe(TOPIC_CONFIG)
-
     client.subscribe("parking/responses")
+
+    send_camera_status("face_in")
+    send_camera_status("plate_in")
+    send_camera_status("face_out")
+    send_camera_status("plate_out")
 
 def on_message(client, userdata, msg):
     try:
@@ -270,8 +277,3 @@ def register_config_callback(callback):
 #  INIT 
 client.connect(BROKER_IP, PORT, 60)
 client.loop_start()
-
-send_camera_status("face_in")
-send_camera_status("plate_in")
-send_camera_status("face_out")
-send_camera_status("plate_out")
