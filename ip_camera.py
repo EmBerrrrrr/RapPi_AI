@@ -1,27 +1,29 @@
-import requests
-import numpy as np
 import cv2
 
 class IPCamera:
-    def __init__(self, url):
+    def __init__(self, url, username="admin", password="admin"):
+        # 🔥 nhúng auth vào URL
+        if "@" not in url:
+            url = url.replace("http://", f"http://{username}:{password}@")
+
         self.url = url
 
+        # 🔥 dùng FFMPEG để đọc MJPEG
+        self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+
+        if not self.cap.isOpened():
+            print(f"Cannot open camera: {self.url}")
+        else:
+            print(f"Camera connected: {self.url}")
+
     def get_frame(self):
-        for _ in range(3): 
-            try:
-                response = requests.get(self.url, timeout=2, stream=True)
+        if not self.cap.isOpened():
+            return None
 
-                if response.status_code == 200:
-                    img_arr = np.frombuffer(response.content, np.uint8)
-                    frame = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
+        ret, frame = self.cap.read()
 
-                    if frame is None:
-                        print(f"[DECODE FAIL] {self.url}")
-                        continue
+        if not ret:
+            print(f"[FRAME FAIL] {self.url}")
+            return None
 
-                    return frame
-
-            except Exception as e:
-                print(f"[REQUEST FAIL] {self.url} - {e}")
-
-        return None
+        return frame

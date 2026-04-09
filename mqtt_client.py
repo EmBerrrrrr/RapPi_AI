@@ -16,13 +16,16 @@ cloudinary.config(
     api_secret="MIVAF9tZKhYLvuLnsu2BypzxSbk"
 )
 
+def clean_ip(url):
+    return url.replace("admin:admin@", "")
+
 #  CAMERA CONFIG 
 CAMERA_CONFIG = {
     "Bãi Xe Đại Học FPT": {
-        "facein": "192.168.1.10",
-        "platein": "192.168.1.11",
-        "faceout": "192.168.1.20",
-        "plateout": "192.168.1.21"
+        "facein": "http://admin:admin@192.168.88.121:8081/video",
+        "platein": "http://admin:admin@192.168.88.191:8081/video",
+        "faceout": "http://admin:admin@192.168.88.121:8081/video",
+        "plateout": "http://admin:admin@192.168.88.191:8081/video"
     }
 }
 
@@ -143,22 +146,22 @@ CAMERA_DEVICES = {
     "face_in": {
         "device_code": f"face_camera_in_{serials['face_in']}",
         "device_name": "Face Camera In",
-        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["facein"]
+        "cameraIp": clean_ip(CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["facein"])
     },
     "plate_in": {
         "device_code": f"plate_camera_in_{serials['plate_in']}",
         "device_name": "Plate Camera In",
-        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["platein"]
+        "cameraIp": clean_ip(CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["platein"])
     },
     "face_out": {
         "device_code": f"face_camera_out_{serials['face_out']}",
         "device_name": "Face Camera Out",
-        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["faceout"]
+        "cameraIp": clean_ip(CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["faceout"])
     },
     "plate_out": {
         "device_code": f"plate_camera_out_{serials['plate_out']}",
         "device_name": "Plate Camera Out",
-        "cameraIp": CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["plateout"]
+        "cameraIp": clean_ip(CAMERA_CONFIG["Bãi Xe Đại Học FPT"]["plateout"])
     }
 }
 
@@ -213,8 +216,8 @@ def send_checkin(plate_number, face_img, plate_img,
         "status": status,
         "reason": reason,
         "timeIn": datetime.now(timezone.utc).isoformat(),
-        "faceCameraIp": cam["facein"],
-        "plateCameraIp": cam["platein"],
+        "faceCameraIp": clean_ip(cam["facein"]),
+        "plateCameraIp": clean_ip(cam["platein"]),
         "faceImageUrl": face_url,
         "plateImageUrl": plate_url,
         "confidenceScore": confidence_score,
@@ -244,8 +247,8 @@ def send_checkout(plate_number, similarity,
         "reason": reason,
         "similarity": similarity,
         "timeOut": datetime.now(timezone.utc).isoformat(),
-        "faceCameraIp": cam["faceout"],
-        "plateCameraIp": cam["plateout"],
+        "faceCameraIp": clean_ip(cam["faceout"]),
+        "plateCameraIp": clean_ip(cam["plateout"]),
         "faceImageUrl": face_url,
         "plateImageUrl": plate_url,
         "confidenceScore": confidence_score,

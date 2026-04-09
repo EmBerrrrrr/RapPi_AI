@@ -27,12 +27,17 @@ face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 )
 
-# ===== CAMERA =====
-cap = cv2.VideoCapture(0)
+# ===== IP CAMERA =====
+CAM_URL = "http://admin:admin@192.168.88.191:8081/video"
+
+cap = cv2.VideoCapture(CAM_URL, cv2.CAP_FFMPEG)
+cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not cap.isOpened():
-    print("ERROR: Cannot open camera")
+    print("ERROR: Cannot open IP camera")
     sys.exit(1)
+
+print("[INFO] Using IP Camera:", CAM_URL)
 
 print("[INFO] Waiting for stable face (5s)...")
 
@@ -43,7 +48,9 @@ start_detect_time = None
 
 while True:
     ret, img = cap.read()
-    if not ret:
+
+    if not ret or img is None:
+        print("[WARN] Frame failed, retrying...")
         continue
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -55,7 +62,7 @@ while True:
             print("[INFO] Face detected -> start 5s timer")
 
         elapsed = time.time() - start_detect_time
-        remaining = max(0, 5 - int(elapsed))
+        remaining = max(0, 2 - int(elapsed))
 
         for (x, y, w, h) in faces:
             cv2.rectangle(img, (x, y), (x+w, y+h), (0,255,0), 2)
@@ -72,8 +79,8 @@ while True:
         cv2.putText(img, f"Hold still {remaining}s", (10,30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 
-        if elapsed >= 5:
-            print("[OK] Face stable for 5s")
+        if elapsed >= 2:
+            print("[OK] Face stable for 2s")
             break
 
     else:

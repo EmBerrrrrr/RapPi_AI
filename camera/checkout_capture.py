@@ -53,7 +53,8 @@ class CheckOutCapture:
         self.frame_skip = frame_skip
         self.last_embedding_time = last_embedding_time
         
-        print(f"    Camera opened (ID: {face_cam_id} for face, {plate_cam_id} for plate)")
+        print(f"    Face cam: {face_cam_url}")
+        print(f"    Plate cam: {plate_cam_url}")
         
         # Initialize AI modules
         print("\nInitializing AI modules...")
@@ -203,7 +204,8 @@ class CheckOutCapture:
             # Detect plate
             plate_detected = False
             plate_text = None
-            plate_confidence = best.get('confidence', 0.0)
+            plate_confidence = 0.0
+            plate_bbox = None
             plate_image = None
             if not hasattr(self, "last_plate_detected"):
                 self.last_plate_detected = False
@@ -226,14 +228,17 @@ class CheckOutCapture:
                 if len(detected_plates) > 0:
                     best = detected_plates[0]
 
+                    plate_confidence = float(best.get('confidence', 0.0))
+
                     raw_plate_text = best.get('text')
                     clean_plate = normalize_plate(raw_plate_text)
 
                     if clean_plate:
                         plate_detected = True
                         plate_text = clean_plate
+
                         plate_bbox = best.get('bbox')
-                        x1, y1, x2, y2 = best['bbox']
+                        x1, y1, x2, y2 = plate_bbox
                         plate_image = plate_frame[y1:y2, x1:x2]
 
                         # SAVE STATE
@@ -518,8 +523,8 @@ class CheckOutCapture:
 def main():
     try:
         checkout = CheckOutCapture(
-            face_cam_url="http://192.168.100.137:8081/photo",
-            plate_cam_url="http://192.168.100.138:8081/photo",
+            face_cam_url="http://192.168.88.121:8081/video",
+            plate_cam_url="http://192.168.88.191:8081/video",
             timeout_sec=60,
             similarity_threshold=0.70,
             plate_confidence_thresh=0.80

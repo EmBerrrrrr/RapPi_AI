@@ -30,9 +30,9 @@ class DatasetManager:
         self.lp_data = self._load_json(self.lp_db)
         self.vectors_data = self._load_pickle(self.faces_vectors_pkl)
         
-        print(f"✅ Dataset Manager initialized")
-        print(f"   📁 Face vectors: {self.face_vectors_dir}")
-        print(f"   📁 License plates: {self.lp_data_dir}")
+        print(f" Dataset Manager initialized")
+        print(f" Face vectors: {self.face_vectors_dir}")
+        print(f" License plates: {self.lp_data_dir}")
     
     def _load_json(self, filepath):
         """Load JSON file, return empty dict if not exist"""
@@ -111,7 +111,7 @@ class DatasetManager:
             self._save_json(self.faces_data, self.faces_db)
             self._save_pickle(self.vectors_data, self.faces_vectors_pkl)
             
-            print(f"✅ Đã lưu vector khuôn mặt: {name} ({face_id})")
+            print(f"Đã lưu vector khuôn mặt: {name} ({face_id})")
             return True
             
         except Exception as e:
@@ -184,7 +184,7 @@ class DatasetManager:
             # Save to file
             self._save_json(self.lp_data, self.lp_db)
             
-            print(f"✅ Đã lưu biển số: {plate_text} ({image_path.name})")
+            print(f" Đã lưu biển số: {plate_text} ({image_path.name})")
             return True
             
         except Exception as e:
@@ -221,7 +221,7 @@ class DatasetManager:
         report_path = self.face_vectors_dir / f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         self._save_json(report, report_path)
         
-        print(f"📊 Báo cáo faces: {report_path}")
+        print(f"Báo cáo faces: {report_path}")
         return report
     
     def export_lp_report(self):
@@ -235,7 +235,7 @@ class DatasetManager:
         report_path = self.lp_data_dir / f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         self._save_json(report, report_path)
         
-        print(f"📊 Báo cáo license plates: {report_path}")
+        print(f"Báo cáo license plates: {report_path}")
         return report
     
     def export_face_vectors_csv(self):
@@ -257,7 +257,7 @@ class DatasetManager:
                         vector_info['image_path']
                     ])
         
-        print(f"📄 CSV file: {csv_path}")
+        print(f"CSV file: {csv_path}")
         return csv_path
     
     def export_lp_csv(self):
@@ -279,7 +279,7 @@ class DatasetManager:
                         data['count']
                     ])
         
-        print(f"📄 CSV file: {csv_path}")
+        print(f"CSV file: {csv_path}")
         return csv_path
     
     # ============ CHECK-IN METHODS ============
