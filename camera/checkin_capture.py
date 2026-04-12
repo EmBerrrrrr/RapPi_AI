@@ -11,6 +11,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 import time
+import json
 from mqtt_client import register_config_callback
 
 from face_recognition.face_detection import FaceDetector
@@ -559,8 +560,8 @@ class CheckInCapture:
 def main():
     try:
         capture = CheckInCapture(
-            face_cam_url="http://192.168.88.121:8081/video",
-            plate_cam_url="http://192.168.88.191:8081/video",
+            face_cam_url="http://192.168.1.162:8081/video",
+            plate_cam_url="http://192.168.1.202:8081/video",
             save_interval=60
         )
         register_config_callback(capture.update_config)
@@ -591,10 +592,6 @@ if __name__ == "__main__":
     print("\n")
 
     result = main()
-
-    if result:
-        print("\nCHECK-IN SUCCESS")
-        sys.exit(0) 
-    else:
-        print("\nCHECK-IN FAILED")
-        sys.exit(1) 
+    print(json.dumps({
+            "success": True if result == "OPEN" else False
+        }))

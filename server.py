@@ -36,6 +36,7 @@ def run_script(command):
             last_line = result.stdout.strip().split("\n")[-1]
             data = json.loads(last_line)
 
+            # 🔥 FIX QUAN TRỌNG: phải return ở đây
             if data.get("success"):
                 return "OPEN"
             else:
@@ -43,6 +44,7 @@ def run_script(command):
 
         except Exception as e:
             print("JSON parse failed:", e)
+            print("RAW OUTPUT:", result.stdout)
             return "ERROR"
 
     except Exception as e:

@@ -145,16 +145,33 @@ class CheckOutCapture:
             
             # Check timeout
             if elapsed >= self.timeout_sec:
-                print(f"\n⏱TIME EXPIRED ({self.timeout_sec}s)")
+                print("TIMEOUT → SEND MQTT")
+
+                try:
+                    send_checkout(
+                        plate_number="UNKNOWN",
+                        similarity=0,
+                        face_img=None,
+                        plate_img=None,
+                        status="fail",
+                        reason="timeout",
+                        lot_name=self.lot_name,
+                        confidence_score=0,
+                        processing_time_ms=int((time.time() - self.start_time) * 1000)
+                    )
+                except Exception as e:
+                    print(f"MQTT timeout error: {e}")
+
                 self.result = {
                     'success': False,
-                    'message': 'TIMEOUT - Quá thời gian cho phép',
+                    'message': 'TIMEOUT',
                     'plate': None,
                     'similarity': None,
                     'duration_sec': elapsed,
                     'reason': 'timeout'
                 }
-                break
+
+                break  
             
             run_ai = (self.frame_count % self.frame_skip == 0)
             
@@ -317,11 +334,13 @@ class CheckOutCapture:
                         last_verify_time = current_time
                         elapsed_total = time.time() - self.start_time
 
+                        # ===== SUCCESS =====
                         if match_result['success']:
                             print("\n MATCH SUCCESS → Sending MQTT")
 
                             try:
                                 self.checkout_plate = plate_text
+
                                 send_checkout(
                                     plate_number=plate_text,
                                     similarity=match_result.get('similarity'),
@@ -337,43 +356,35 @@ class CheckOutCapture:
                                 print("MQTT SENT → WAITING FOR BE RESPONSE")
 
                                 self.mqtt_response = None
-                                self.mqtt_reason = None  # reset
+                                self.mqtt_reason = None
 
                                 wait_start = time.time()
-                                timeout = 5  # giây
+                                timeout = 5
 
                                 while self.mqtt_response is None and time.time() - wait_start < timeout:
                                     time.sleep(0.1)
 
+                                print(f"FAIL RESPONSE FROM BE: {self.mqtt_response} - {self.mqtt_reason}")
+
                                 if self.mqtt_response == "OPEN":
                                     print("BE ALLOW → OPEN GATE")
-
-                                    result = self.dataset_manager.record_checkout(
-                                        plate_text=plate_text,
-                                        metadata={
-                                            "source": "mqtt_response",
-                                            "reason": self.mqtt_reason
-                                        }
-                                    )
-
-                                    print(f" Dataset updated: {result}")
+                                    success_flag = True
 
                                 elif self.mqtt_response == "DENY":
-                                    print(" BE DENY → DO NOT OPEN")
-                                    break
+                                    print(f"BE DENY → {self.mqtt_reason}")
+                                    success_flag = False
 
                                 else:
-                                    print(" NO RESPONSE FROM BE")
-                                    break
+                                    print("NO RESPONSE FROM BE → AUTO DENY")
+                                    success_flag = False
 
-                                success_flag = True if self.mqtt_response == "OPEN" else False
                                 self.result = {
                                     'success': success_flag,
-                                    'message': 'CHECKOUT SUCCESS',
+                                    'message': 'CHECKOUT SUCCESS' if success_flag else 'CHECKOUT FAILED',
                                     'plate': plate_text,
                                     'similarity': match_result.get('similarity'),
                                     'duration_sec': elapsed_total,
-                                    'reason': 'face_match'
+                                    'reason': self.mqtt_reason if self.mqtt_reason else "be_timeout"
                                 }
 
                                 break
@@ -381,9 +392,41 @@ class CheckOutCapture:
                             except Exception as e:
                                 print(f"MQTT send failed: {e}")
 
-                        if not match_result['success']:
+
+                        # ===== FAIL (QUAN TRỌNG) =====
+                        else:
                             print(f"Verification failed ({match_result['reason']})")
-                            print(f"Retrying... Remaining: {remaining:.1f}s")
+
+                            try:
+                                self.checkout_plate = plate_text
+
+                                send_checkout(
+                                    plate_number=plate_text,
+                                    similarity=match_result.get('similarity'),
+                                    face_img=face_image,
+                                    plate_img=plate_image,
+                                    status="fail",
+                                    reason=match_result.get('reason', 'unknown'),
+                                    lot_name=self.lot_name,
+                                    confidence_score=plate_confidence,
+                                    processing_time_ms=int((time.time() - self.start_time) * 1000)
+                                )
+
+                                print("MQTT SENT (FAIL)")
+
+                            except Exception as e:
+                                print(f"MQTT fail send error: {e}")
+
+                            self.result = {
+                                'success': False,
+                                'message': 'CHECKOUT FAILED',
+                                'plate': plate_text,
+                                'similarity': match_result.get('similarity'),
+                                'duration_sec': elapsed_total,
+                                'reason': match_result.get('reason')
+                            }
+
+                            break
             
             # Quit on 'q'
             key = cv2.waitKey(1) & 0xFF
@@ -521,8 +564,8 @@ class CheckOutCapture:
 def main():
     try:
         checkout = CheckOutCapture(
-            face_cam_url="http://192.168.88.121:8081/video",
-            plate_cam_url="http://192.168.88.191:8081/video",
+            face_cam_url="http://192.168.1.162:8081/video",
+            plate_cam_url="http://192.168.1.202:8081/video",
             timeout_sec=60,
             similarity_threshold=0.70,
             plate_confidence_thresh=0.80
