@@ -15,7 +15,7 @@ token = sys.argv[2] if len(sys.argv) > 2 else ""
 print("[START]", mode)
 
 # ===== CONFIG =====
-API_BASE_URL = "https://rare-flounder-exactly.ngrok-free.app"
+API_BASE_URL = "https://uninhibited-josette-complicatedly.ngrok-free.dev"
 CHECKIN_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-in"
 CHECKOUT_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-out"
 
@@ -28,7 +28,7 @@ face_cascade = cv2.CascadeClassifier(
 )
 
 # ===== IP CAMERA =====
-CAM_URL = "http://admin:admin@192.168.88.191:8081/video"
+CAM_URL = "http://admin:admin@192.168.137.129:8081/video"
 
 cap = cv2.VideoCapture(CAM_URL, cv2.CAP_FFMPEG)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -62,10 +62,10 @@ while True:
             print("[INFO] Face detected -> start 5s timer")
 
         elapsed = time.time() - start_detect_time
-        remaining = max(0, 2 - int(elapsed))
+        remaining = max(0, 1 - int(elapsed))
 
         for (x, y, w, h) in faces:
-            cv2.rectangle(img, (x, y), (x+w, y+h), (0,255,0), 2)
+            cv2.rectangle(img, (x, y), (x+w, y+h), (0,255,0), 1)
 
             if w < 120 or h < 120:
                 continue
@@ -142,7 +142,7 @@ try:
         url,
         files=files,
         headers=headers,
-        timeout=15,
+        timeout=60,
         verify=False
     )
 

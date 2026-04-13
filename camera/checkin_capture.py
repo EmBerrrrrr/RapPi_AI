@@ -560,8 +560,8 @@ class CheckInCapture:
 def main():
     try:
         capture = CheckInCapture(
-            face_cam_url="http://192.168.1.162:8081/video",
-            plate_cam_url="http://192.168.1.202:8081/video",
+            face_cam_url="http://192.168.137.129:8081/video",
+            plate_cam_url="http://192.168.137.227:8081/video",
             save_interval=60
         )
         register_config_callback(capture.update_config)
