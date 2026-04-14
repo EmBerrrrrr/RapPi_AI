@@ -45,6 +45,13 @@ def run_script(command):
         except Exception as e:
             print("JSON parse failed:", e)
             print("RAW OUTPUT:", result.stdout)
+
+            # 🔥 fallback thông minh
+            if "MATCH SUCCESS" in result.stdout:
+                return "OPEN"
+            elif "MATCH FAIL" in result.stdout:
+                return "DENY"
+
             return "ERROR"
 
     except Exception as e:
@@ -129,20 +136,19 @@ def checkout_result():
 
 # FACE CHECKIN 
 @app.route('/face_checkin', methods=['POST'])
-
 def face_checkin():
     token = (request.json or {}).get("token", "")
 
     script_path = os.path.join(BASE_DIR, "camera", "face_checkin_single_cam.py")
 
-    result = run_script([
-        "python",
-        script_path,
-        "checkin",
-        token
-    ])
+    print("[FACE CHECKIN] Trigger camera...")
 
-    return jsonify({"status": result})
+    threading.Thread(
+        target=run_script,
+        args=([ "python", script_path, "checkin", token ],)
+    ).start()
+
+    return jsonify({"status": "PROCESSING"})
 
 
 # FACE CHECKOUT 
@@ -152,14 +158,14 @@ def face_checkout():
 
     script_path = os.path.join(BASE_DIR, "camera", "face_checkin_single_cam.py")
 
-    result = run_script([
-        "python",
-        script_path,
-        "checkout",
-        token
-    ])
+    print("[FACE CHECKOUT] Trigger camera...")
 
-    return jsonify({"status": result})
+    threading.Thread(
+        target=run_script,
+        args=([ "python", script_path, "checkout", token ],)
+    ).start()
+
+    return jsonify({"status": "PROCESSING"})
 
 
 if __name__ == "__main__":

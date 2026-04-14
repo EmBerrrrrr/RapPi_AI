@@ -2,6 +2,7 @@ import sys
 import os
 import cv2
 import time
+import json
 import requests
 import urllib3
 sys.stdout.reconfigure(encoding='utf-8')
@@ -15,7 +16,7 @@ token = sys.argv[2] if len(sys.argv) > 2 else ""
 print("[START]", mode)
 
 # ===== CONFIG =====
-API_BASE_URL = "https://uninhibited-josette-complicatedly.ngrok-free.dev"
+API_BASE_URL = "https://sep490motoguard-production.up.railway.app"
 CHECKIN_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-in"
 CHECKOUT_URL = f"{API_BASE_URL}/api/v1/work-shifts/face-check-out"
 
@@ -28,14 +29,16 @@ face_cascade = cv2.CascadeClassifier(
 )
 
 # ===== IP CAMERA =====
-CAM_URL = "http://admin:admin@192.168.137.129:8081/video"
+# CAM_URL = "http://admin:admin@192.168.137.129:8081/video"
+CAM_URL = "http://admin:admin@192.168.100.135:8081/video"
 
 cap = cv2.VideoCapture(CAM_URL, cv2.CAP_FFMPEG)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not cap.isOpened():
     print("ERROR: Cannot open IP camera")
-    sys.exit(1)
+    print(json.dumps({"success": False}))
+    sys.exit(0)
 
 print("[INFO] Using IP Camera:", CAM_URL)
 
@@ -102,7 +105,8 @@ cv2.destroyAllWindows()
 
 if best_frame is None or best_face is None:
     print("ERROR: No valid face")
-    sys.exit(1)
+    print(json.dumps({"success": False}))
+    sys.exit(0)
 
 print("[OK] Best frame selected")
 
@@ -160,29 +164,34 @@ try:
 
             if is_success:
                 print("MATCH SUCCESS")
-                sys.exit(0)  
+                print(json.dumps({"success": True}))
             else:
-                print("MATCH FAIL (BE returned is_success = False)")
-                sys.exit(2)   
+                print("MATCH FAIL")
+                print(json.dumps({"success": False}))   
 
         except Exception as e:
             print("JSON ERROR:", e)
-            sys.exit(1)   
+            print(json.dumps({"success": False}))
+            sys.exit(0)  
 
     # ===== HTTP FAIL =====
     else:
         print("HTTP ERROR:", response.status_code)
-        sys.exit(1)
+        print(json.dumps({"success": False}))
+        sys.exit(0)
 
 # ===== REQUEST FAIL =====
 except requests.exceptions.Timeout:
     print("REQUEST TIMEOUT")
-    sys.exit(1)
+    print(json.dumps({"success": False}))
+    sys.exit(0)
 
 except requests.exceptions.ConnectionError:
     print("CONNECTION ERROR")
-    sys.exit(1)
+    print(json.dumps({"success": False}))
+    sys.exit(0)
 
 except Exception as e:
     print("REQUEST ERROR:", e)
-    sys.exit(1)
+    print(json.dumps({"success": False}))
+    sys.exit(0)

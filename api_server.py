@@ -1,480 +1,169 @@
-"""
-REST API for AI Services
-Flask API that .NET Backend can call
-"""
+"""Minimal AI embedding service with backend callback worker."""
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import cv2
-import numpy as np
-import base64
 from io import BytesIO
-from PIL import Image
+import base64
 import os
+import threading
+import time
+
+import cv2
 from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import numpy as np
+from PIL import Image
+import requests
+import urllib3
 
-# Load environment variables
-load_dotenv()
-
-# Import AI services
 from face_recognition.face_detection import FaceDetector
 from face_recognition.face_recognition import FaceRecognizer
-from license_plate.detector import LicensePlateDetector
-""" from parking_service import ParkingService """
-from database_models import create_db_engine
-import uuid
 
-# Initialize Flask app
+load_dotenv()
+
 app = Flask(__name__)
-CORS(app)  # Enable CORS for .NET to call
+CORS(app)
 
-# Initialize AI models (global)
-print("🚀 Initializing AI models...")
+print("Initializing AI models...")
 face_detector = FaceDetector()
 face_recognizer = FaceRecognizer()
-plate_detector = LicensePlateDetector()
+print("AI embedding service ready")
 
-# Initialize database connection
-print("🔌 Connecting to database...")
-try:
-    engine, Session = create_db_engine(
-        host=os.getenv('DB_HOST'),
-        port=int(os.getenv('DB_PORT', 5432)),
-        database=os.getenv('DB_NAME', 'postgres'),
-        username=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD')
-    )
-    print("✅ Database connected successfully!")
-except Exception as e:
-    print(f"⚠️ Database connection failed: {e}")
-    print("⚠️ API will run without database (limited functionality)")
-    engine = None
-    Session = None
+BE_BASE_URL = os.getenv("BE_BASE_URL", "https://sep490motoguard-production.up.railway.app").rstrip("/")
+AI_POLL_INTERVAL_SECONDS = float(os.getenv("AI_POLL_INTERVAL_SECONDS", "0.5"))
+VERIFY_BE_SSL = os.getenv("VERIFY_BE_SSL", "false").lower() in ("1", "true", "yes")
 
-print("✅ AI API Server ready!")
+if not VERIFY_BE_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-# Helper functions
 def decode_base64_image(base64_string):
-    """Decode base64 image to numpy array"""
+    """Decode base64 image to OpenCV BGR array."""
     try:
-        # Remove header if present
-        if ',' in base64_string:
-            base64_string = base64_string.split(',')[1]
-        
+        if "," in base64_string:
+            base64_string = base64_string.split(",", 1)[1]
+
         img_data = base64.b64decode(base64_string)
         img = Image.open(BytesIO(img_data))
         img_array = np.array(img)
-        
-        # Convert RGB to BGR for OpenCV
+
         if len(img_array.shape) == 3:
             img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-        
+
         return img_array
-    except Exception as e:
-        print(f"Error decoding image: {e}")
+    except Exception as ex:
+        print(f"Error decoding image: {ex}")
         return None
 
 
-# API Endpoints
+def extract_embedding_from_base64(image_base64):
+    """Extract embedding bytes encoded as base64 from image payload."""
+    image = decode_base64_image(image_base64)
+    if image is None:
+        raise ValueError("Invalid image format")
 
-@app.route('/health', methods=['GET'])
+    faces = face_detector.detect_faces(image)
+    if not faces:
+        raise ValueError("No face detected")
+
+    x, y, w, h = faces[0]["box"]
+    y_min, y_max = max(0, y), min(image.shape[0], y + h)
+    x_min, x_max = max(0, x), min(image.shape[1], x + w)
+    face_crop = image[y_min:y_max, x_min:x_max]
+    face_crop = cv2.resize(face_crop, (160, 160))
+
+    embedding = face_recognizer.get_embedding(face_crop)
+    embedding_bytes = embedding.astype(np.float32).tobytes()
+    return base64.b64encode(embedding_bytes).decode("utf-8")
+
+
+def poll_embedding_jobs():
+    """Background worker: pull embedding jobs from backend and push result back."""
+    print(f"Starting embedding callback worker against {BE_BASE_URL} (verify_ssl={VERIFY_BE_SSL})")
+
+    while True:
+        try:
+            next_url = f"{BE_BASE_URL}/api/v1/ai/embedding-jobs/next"
+            response = requests.get(next_url, timeout=10, verify=VERIFY_BE_SSL)
+
+            if response.status_code == 204:
+                time.sleep(AI_POLL_INTERVAL_SECONDS)
+                continue
+
+            if response.status_code != 200:
+                print(f"Poll failed: HTTP {response.status_code} - {response.text}")
+                time.sleep(2)
+                continue
+
+            payload = response.json()
+            if not payload.get("success"):
+                time.sleep(AI_POLL_INTERVAL_SECONDS)
+                continue
+
+            data = payload.get("data") or {}
+            job_id = data.get("jobId")
+            image_base64 = data.get("image")
+
+            if not job_id or not image_base64:
+                time.sleep(AI_POLL_INTERVAL_SECONDS)
+                continue
+
+            result_body = {}
+            try:
+                result_body["embedding"] = extract_embedding_from_base64(image_base64)
+            except Exception as ex:
+                result_body["errorMessage"] = str(ex)
+
+            submit_url = f"{BE_BASE_URL}/api/v1/ai/embedding-jobs/{job_id}/result"
+            submit_response = requests.post(submit_url, json=result_body, timeout=10, verify=VERIFY_BE_SSL)
+
+            if submit_response.status_code != 200:
+                print(
+                    "Submit result failed for job "
+                    f"{job_id}: HTTP {submit_response.status_code} - {submit_response.text}"
+                )
+
+        except Exception as ex:
+            print(f"Embedding worker error: {ex}")
+            time.sleep(2)
+
+
+@app.route("/health", methods=["GET"])
 def health_check():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'services': {
-            'face_detection': face_detector is not None,
-            'face_recognition': face_recognizer is not None,
-            'plate_detection': plate_detector is not None,
-            'database': engine is not None
+    return jsonify(
+        {
+            "status": "healthy",
+            "services": {
+                "face_detection": face_detector is not None,
+                "face_recognition": face_recognizer is not None,
+            },
         }
-    })
+    )
 
 
-@app.route('/api/detect/face', methods=['POST'])
-def detect_face():
-    """
-    Detect faces in image
-    
-    Request body:
-    {
-        "image": "base64_encoded_image"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "faces": [{"box": [x, y, w, h], "confidence": 0.99}],
-        "count": 1
-    }
-    """
-    try:
-        data = request.get_json()
-        image_base64 = data.get('image')
-        
-        if not image_base64:
-            return jsonify({'success': False, 'message': 'No image provided'}), 400
-        
-        # Decode image
-        image = decode_base64_image(image_base64)
-        if image is None:
-            return jsonify({'success': False, 'message': 'Invalid image format'}), 400
-        
-        # Detect faces
-        faces = face_detector.detect_faces(image)
-        
-        return jsonify({
-            'success': True,
-            'faces': faces,
-            'count': len(faces)
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/recognize/face', methods=['POST'])
-def recognize_face():
-    """
-    Recognize face from image
-    
-    Request body:
-    {
-        "image": "base64_encoded_image"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "name": "John Doe",
-        "confidence": 0.85
-    }
-    """
-    try:
-        data = request.get_json()
-        image_base64 = data.get('image')
-        
-        if not image_base64:
-            return jsonify({'success': False, 'message': 'No image provided'}), 400
-        
-        image = decode_base64_image(image_base64)
-        if image is None:
-            return jsonify({'success': False, 'message': 'Invalid image format'}), 400
-        
-        # Detect and recognize
-        faces = face_detector.detect_faces(image)
-        
-        if not faces:
-            return jsonify({'success': False, 'message': 'No face detected'})
-        
-        # Get first face
-        x, y, w, h = faces[0]['box']
-        face_crop = image[y:y+h, x:x+w]
-        face_crop = cv2.resize(face_crop, (160, 160))
-        
-        # Recognize
-        name, confidence = face_recognizer.recognize(face_crop)
-        
-        return jsonify({
-            'success': True,
-            'name': name,
-            'confidence': float(confidence),
-            'box': faces[0]['box']
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/extract/embedding', methods=['POST'])
+@app.route("/api/extract/embedding", methods=["POST"])
 def extract_face_embedding():
-    """
-    Extract face embedding from image for .NET Backend
-    Request body:
-    {
-        "image": "base64_encoded_image"
-    }
-    Response:
-    {
-        "success": true,
-        "embedding": "base64_string",
-        "dim": 512
-    }
-    """
     try:
-        data = request.get_json()
-        image_base64 = data.get('image')
-        
+        data = request.get_json() or {}
+        image_base64 = data.get("image")
+
         if not image_base64:
-            return jsonify({'success': False, 'message': 'No image provided'}), 400
-        
-        # 1. Decode image
-        image = decode_base64_image(image_base64)
-        if image is None:
-            return jsonify({'success': False, 'message': 'Invalid image format'}), 400
-        
-        # 2. Detect face
-        faces = face_detector.detect_faces(image)
-        if not faces:
-            return jsonify({'success': False, 'message': 'No face detected'}), 400
-        
-        # 3. Get first face crop
-        x, y, w, h = faces[0]['box']
-        # Đảm bảo crop không ra ngoài biên ảnh
-        y_min, y_max = max(0, y), min(image.shape[0], y+h)
-        x_min, x_max = max(0, x), min(image.shape[1], x+w)
-        face_crop = image[y_min:y_max, x_min:x_max]
-        face_crop = cv2.resize(face_crop, (160, 160))
-        
-        # 4. Get 512D embedding
-        embedding = face_recognizer.get_embedding(face_crop)
-        
-        # 5. Convert to float32 and encode back to base64 for .NET
-        # .NET sẽ Convert.FromBase64String và dùng BitConverter để lấy float[]
-        embedding_bytes = embedding.astype(np.float32).tobytes()
-        embedding_base64 = base64.b64encode(embedding_bytes).decode('utf-8')
-        
-        return jsonify({
-            'success': True,
-            'embedding': embedding_base64,
-            'dim': len(embedding)
-        })
-        
-    except Exception as e:
-        print(f"Embedding extraction error: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+            return jsonify({"success": False, "message": "No image provided"}), 400
 
+        embedding_base64 = extract_embedding_from_base64(image_base64)
 
-@app.route('/api/detect/plate', methods=['POST'])
-def detect_plate():
-    """
-    Detect and recognize license plate
-    
-    Request body:
-    {
-        "image": "base64_encoded_image"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "plates": [
+        return jsonify(
             {
-                "text": "51A-123.45",
-                "bbox": [x1, y1, x2, y2],
-                "confidence": 0.95
+                "success": True,
+                "embedding": embedding_base64,
+                "dim": 512,
             }
-        ]
-    }
-    """
-    try:
-        data = request.get_json()
-        image_base64 = data.get('image')
-        
-        if not image_base64:
-            return jsonify({'success': False, 'message': 'No image provided'}), 400
-        
-        image = decode_base64_image(image_base64)
-        if image is None:
-            return jsonify({'success': False, 'message': 'Invalid image format'}), 400
-        
-        # Detect plates
-        plates = plate_detector.detect(image)
-        
-        return jsonify({
-            'success': True,
-            'plates': plates,
-            'count': len(plates)
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        )
+    except Exception as ex:
+        print(f"Embedding extraction error: {ex}")
+        return jsonify({"success": False, "message": str(ex)}), 500
 
 
-@app.route('/api/parking/checkin', methods=['POST'])
-def parking_checkin():
-    """
-    Process parking check-in
-    
-    Request body:
-    {
-        "face_image": "base64_encoded_image",
-        "plate_image": "base64_encoded_image",
-        "device_id": "uuid",
-        "lot_id": "uuid" (optional)
-    }
-    
-    Response:
-    {
-        "success": true,
-        "session_id": "uuid",
-        "license_plate": "51A-123.45",
-        "actor_type": "guest|registered_user|monthly_pass_user",
-        "user_name": "John Doe",
-        "display_message": "Welcome message...",
-        "barrier_action": "OPEN"
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        face_base64 = data.get('face_image')
-        plate_base64 = data.get('plate_image')
-        device_id = data.get('device_id')
-        lot_id = data.get('lot_id')
-        
-        if not face_base64 or not plate_base64:
-            return jsonify({'success': False, 'message': 'Missing images'}), 400
-        
-        if not device_id:
-            return jsonify({'success': False, 'message': 'Missing device_id'}), 400
-        
-        # Decode images
-        face_image = decode_base64_image(face_base64)
-        plate_image = decode_base64_image(plate_base64)
-        
-        if face_image is None or plate_image is None:
-            return jsonify({'success': False, 'message': 'Invalid image format'}), 400
-        
-        # Create parking service with database session
-        db_session = Session()
-        try:
-            parking_service = ParkingService(
-                db_session,
-                face_detector,
-                face_recognizer,
-                plate_detector
-            )
-            
-            # Process check-in
-            result = parking_service.process_check_in(
-                face_image,
-                plate_image,
-                uuid.UUID(device_id),
-                uuid.UUID(lot_id) if lot_id else None
-            )
-            
-            db_session.commit()
-            return jsonify(result)
-            
-        except Exception as e:
-            db_session.rollback()
-            raise e
-        finally:
-            db_session.close()
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/parking/checkout', methods=['POST'])
-def parking_checkout():
-    """
-    Process parking check-out
-    
-    Request body:
-    {
-        "face_image": "base64_encoded_image",
-        "plate_image": "base64_encoded_image",
-        "device_id": "uuid"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "session_id": "uuid",
-        "license_plate": "51A-123.45",
-        "parking_fee": 15000.00,
-        "payment_status": "paid|unpaid",
-        "can_exit": true|false,
-        "barrier_action": "OPEN|CLOSED",
-        "display_message": "Payment info..."
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        face_base64 = data.get('face_image')
-        plate_base64 = data.get('plate_image')
-        device_id = data.get('device_id')
-        
-        if not face_base64 or not plate_base64:
-            return jsonify({'success': False, 'message': 'Missing images'}), 400
-        
-        if not device_id:
-            return jsonify({'success': False, 'message': 'Missing device_id'}), 400
-        
-        # Decode images
-        face_image = decode_base64_image(face_base64)
-        plate_image = decode_base64_image(plate_base64)
-        
-        if face_image is None or plate_image is None:
-            return jsonify({'success': False, 'message': 'Invalid image format'}), 400
-        
-        # Create parking service
-        db_session = Session()
-        try:
-            parking_service = ParkingService(
-                db_session,
-                face_detector,
-                face_recognizer,
-                plate_detector
-            )
-            
-            # Process check-out
-            result = parking_service.process_check_out(
-                face_image,
-                plate_image,
-                uuid.UUID(device_id)
-            )
-            
-            db_session.commit()
-            return jsonify(result)
-            
-        except Exception as e:
-            db_session.rollback()
-            raise e
-        finally:
-            db_session.close()
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/parking/session/<license_plate>', methods=['GET'])
-def get_session_by_plate(license_plate):
-    """
-    Get parking session info by license plate (for web payment)
-    
-    Response:
-    {
-        "session_id": "uuid",
-        "license_plate": "51A-123.45",
-        "check_in_time": "2024-01-20T10:00:00",
-        "total_minutes": 120,
-        "parking_fee": 20000.00
-    }
-    """
-    try:
-        db_session = Session()
-        try:
-            parking_service = ParkingService(db_session)
-            result = parking_service.get_session_by_plate(license_plate)
-            
-            if result:
-                return jsonify({'success': True, **result})
-            else:
-                return jsonify({'success': False, 'message': 'Session not found'}), 404
-                
-        finally:
-            db_session.close()
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-if __name__ == '__main__':
-    # Run Flask server
-    # For production, use gunicorn or uwsgi
-    app.run(host='0.0.0.0', port=8000, debug=True)
+if __name__ == "__main__":
+    worker_thread = threading.Thread(target=poll_embedding_jobs, daemon=True)
+    worker_thread.start()
+    app.run(host="0.0.0.0", port=5000, debug=True)
