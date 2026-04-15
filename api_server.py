@@ -166,4 +166,4 @@ def extract_face_embedding():
 if __name__ == "__main__":
     worker_thread = threading.Thread(target=poll_embedding_jobs, daemon=True)
     worker_thread.start()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=True)
