@@ -107,6 +107,11 @@ def checkin():
 
     print("[VEHICLE CHECKIN]")
 
+    # ===== CHỐNG SPAM THREAD =====
+    if checkin_status.get("status") == "PROCESSING":
+        print("CHECKIN BUSY → IGNORE")
+        return jsonify({"status": "BUSY"})
+
     checkin_status = {"status": "PROCESSING"}
 
     threading.Thread(target=run_checkin_ai).start()
@@ -123,6 +128,11 @@ def checkin_result():
 @app.route('/checkout')
 def checkout():
     global checkout_status
+
+    # ===== CHỐNG SPAM =====
+    if checkout_status.get("status") == "PROCESSING":
+        print("CHECKOUT BUSY → IGNORE")
+        return jsonify({"status": "BUSY"})
 
     checkout_status = {"status": "PROCESSING"}  
 

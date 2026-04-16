@@ -33,7 +33,7 @@ def clean_ip(url):
 CAMERA_CONFIG = {
     "Bãi Xe Đại Học FPT": {
         "facein": "http://admin:admin@192.168.137.129:8081/video",
-        "platein": "http://admin:admin@192.168.137.227:8081/video",
+        "platein": "http://admin:admin@192.168.137.249:8081/video",
         "faceout": "http://admin:admin@192.168.137.39:8081/video",
         "plateout": "http://admin:admin@192.168.137.204:8081/video"
     }

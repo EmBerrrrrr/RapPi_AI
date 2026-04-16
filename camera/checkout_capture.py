@@ -564,8 +564,10 @@ class CheckOutCapture:
 def main():
     try:
         checkout = CheckOutCapture(
-            face_cam_url="http://192.168.137.39:8081/video",
-            plate_cam_url="http://192.168.137.204:8081/video",
+            # face_cam_url="http://192.168.137.39:8081/video",
+            # plate_cam_url="http://192.168.137.204:8081/video",
+            face_cam_url="http://192.168.137.129:8081/video",
+            plate_cam_url="http://192.168.137.249:8081/video",
             timeout_sec=60,
             similarity_threshold=0.70,
             plate_confidence_thresh=0.80
