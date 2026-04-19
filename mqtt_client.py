@@ -33,9 +33,9 @@ def clean_ip(url):
 CAMERA_CONFIG = {
     "Bãi Xe Đại Học FPT": {
         "facein": "http://admin:admin@192.168.137.129:8081/video",
-        "platein": "http://admin:admin@192.168.137.249:8081/video",
-        "faceout": "http://admin:admin@192.168.137.39:8081/video",
-        "plateout": "http://admin:admin@192.168.137.204:8081/video"
+        "platein": "http://admin:admin@192.168.137.246:8081/video",
+        "faceout": "http://admin:admin@192.168.137.204:8081/video",
+        "plateout": "http://admin:admin@192.168.137.249:8081/video"
     }
 }
 
@@ -63,6 +63,7 @@ def on_connect(client, userdata, flags, rc):
 
     client.subscribe(TOPIC_CONFIG)
     client.subscribe("parking/responses")
+    client.subscribe("parking/connection")
 
     send_camera_status("face_in")
     send_camera_status("plate_in")
@@ -70,6 +71,22 @@ def on_connect(client, userdata, flags, rc):
     send_camera_status("plate_out")
 
 def on_message(client, userdata, msg):
+    print(f"[AI MQTT] topic={msg.topic} payload={msg.payload.decode()}")
+    if msg.topic == "parking/connection":
+        try:
+            data = json.loads(msg.payload.decode())
+        except:
+            data = None
+
+        if data and data.get("eventName") == "TEST_CONNECTION" and data.get("status") == "CONNECTED":
+            print(" TEST CONNECTION (CAMERA) ")
+
+            send_camera_status("face_in")
+            send_camera_status("plate_in")
+            send_camera_status("face_out")
+            send_camera_status("plate_out")
+
+        return
     try:
         payload = msg.payload.decode()
         print("[MQTT RECEIVED]", msg.topic, payload)
