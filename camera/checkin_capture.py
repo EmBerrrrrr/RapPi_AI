@@ -126,11 +126,16 @@ class CheckInCapture:
         print("━" * 70 + "\n")
         
         debug_mode = False
-        
+        start_time = time.time() 
+        timeout_sec = 60  
+
         while True:
             face_frame = self.face_cam.get_frame()
             plate_frame = self.plate_cam.get_frame()
-
+            if time.time() - start_time > timeout_sec:
+                print("TIMEOUT: Không detect được trong 60s")
+                self.cleanup()
+                return False
             if face_frame is None or plate_frame is None:
                 continue
 
@@ -561,7 +566,7 @@ def main():
     try:
         capture = CheckInCapture(
             face_cam_url="http://192.168.137.129:8081/video",
-            plate_cam_url="http://192.168.137.246:8081/video",
+            plate_cam_url="http://192.168.137.232:8081/video",
             save_interval=60
         )
         register_config_callback(capture.update_config)

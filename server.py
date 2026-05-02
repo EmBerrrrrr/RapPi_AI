@@ -83,7 +83,7 @@ def camera_heartbeat():
         mqtt_client.send_camera_status("face_out")
         mqtt_client.send_camera_status("plate_out")
 
-        time.sleep(60)  # 300s = 5 phút
+        time.sleep(60)  
 
 #  THREAD CHECKOUT 
 def run_checkout_ai():
