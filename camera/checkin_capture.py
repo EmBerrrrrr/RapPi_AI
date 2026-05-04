@@ -126,7 +126,8 @@ class CheckInCapture:
         print("━" * 70 + "\n")
         
         debug_mode = False
-        start_time = time.time() 
+        self.start_time = time.time()
+        start_time = self.start_time
         timeout_sec = 60  
 
         while True:
@@ -434,7 +435,7 @@ class CheckInCapture:
                     reason="face_save_failed",
                     lot_name=self.lot_name,
                     confidence_score=plate_confidence,
-                    processing_time_ms=int(time.time() * 1000)
+                    processing_time_ms=int((time.time() - self.start_time) * 1000)
                 )
                 return False
 
@@ -461,7 +462,7 @@ class CheckInCapture:
                     reason="plate_save_failed",
                     lot_name=self.lot_name,
                     confidence_score=plate_confidence,
-                    processing_time_ms=int(time.time() * 1000)
+                    processing_time_ms=int((time.time() - self.start_time) * 1000)
                 )
                 return False
 
@@ -487,7 +488,7 @@ class CheckInCapture:
                 reason="ok",
                 lot_name=self.lot_name,
                 confidence_score=plate_confidence,
-                processing_time_ms=int(time.time() * 1000)
+                processing_time_ms=int((time.time() - self.start_time) * 1000)
             )
 
             print("CHECK-IN SUCCESS SENT")
@@ -505,7 +506,7 @@ class CheckInCapture:
                 reason="exception",
                 lot_name=self.lot_name,
                 confidence_score=plate_confidence,
-                processing_time_ms=int(time.time() * 1000)
+                processing_time_ms=int((time.time() - self.start_time) * 1000)
             )
 
             return False
@@ -565,8 +566,8 @@ class CheckInCapture:
 def main():
     try:
         capture = CheckInCapture(
-            face_cam_url="http://192.168.137.129:8081/video",
-            plate_cam_url="http://192.168.137.232:8081/video",
+            face_cam_url="http://192.168.137.40:8081/video",
+            plate_cam_url="http://192.168.137.227:8081/video",
             save_interval=60
         )
         register_config_callback(capture.update_config)

@@ -30,7 +30,7 @@ face_cascade = cv2.CascadeClassifier(
 
 # ===== IP CAMERA =====
 #CAM_URL = "http://admin:admin@192.168.137.129:8081/video"
-CAM_URL = "http://admin:admin@192.168.137.132:8081/video"
+CAM_URL = "http://admin:admin@192.168.137.40:8081/video"
 
 cap = cv2.VideoCapture(CAM_URL, cv2.CAP_FFMPEG)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
