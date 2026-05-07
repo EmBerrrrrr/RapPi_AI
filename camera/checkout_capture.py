@@ -29,7 +29,7 @@ class CheckOutCapture:
     Xác minh >= 70% similarity
     """
     
-    def __init__(self,frame_skip = 2,frame_count = 0,last_embedding_time = 0, face_cam_url=None, plate_cam_url=None, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None):
+    def __init__(self,frame_skip = 2,frame_count = 0,last_embedding_time = 0, face_cam_url=None, plate_cam_url=None, timeout_sec=60, similarity_threshold=0.6, plate_confidence_thresh=0.80, last_plate_logged=None, self.last_face_seen_time = 0):
         """
         Khởi tạo check-out capture
         Args:
@@ -82,6 +82,7 @@ class CheckOutCapture:
         self.checkout_plate = None
         self.checkout_face_embedding = None
         self.result = None
+        self.last_face_seen_time = 0
         self.mqtt_response = None
         self.mqtt_reason = None 
         register_response_callback(self.on_mqtt_response)
@@ -201,6 +202,7 @@ class CheckOutCapture:
                     if len(faces) > 0:
                         face_detected = True
                         face_image = faces[0]
+                        self.last_face_seen_time = time.time()
 
                         if time.time() - self.last_embedding_time > 1:
                             face_embedding = self.face_recognizer.get_embedding(face_image)
@@ -212,8 +214,15 @@ class CheckOutCapture:
                         self.last_face_image = face_image
 
                     else:
-                        # KHÔNG reset ngay → tránh flicker
-                        pass
+                        # mất mặt quá 1 giây thì reset
+                        if time.time() - self.last_face_seen_time > 1:
+                            self.last_face_detected = False
+                            self.last_face_image = None
+                            self.checkout_face_embedding = None
+
+                            face_detected = False
+                            face_image = None
+                            face_embedding = None
 
                 except:
                     pass
